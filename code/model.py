@@ -3,7 +3,8 @@ import tensorflow as tf
 
 class RelationalNetwork():
 
-    def __init__(self, inputs, idx_to_value, embedding_size, g_theta_layers, f_phi_layers,
+    def __init__(self, inputs, idx_to_value, cat_embedding_size,
+                 word_embedding_size, g_theta_layers, f_phi_layers,
                  rnn_hidden_dim, is_train):
 
 
@@ -16,7 +17,14 @@ class RelationalNetwork():
             outputs = list()
             outputs.append(tf.contrib.layers.fully_connected(inputs, layers[0]))
             for layer_dim in layers[1:]:
-                outputs.append(tf.contrib.layers.fully_connected(outputs[-1], layer_dim))
+                fc_output = tf.contrib.layers.fully_connected(outputs[-1],
+                                                                    layer_dim)
+                bn_output = tf.contrib.layers.batch_norm(fc_output, decay=0.95,
+                                                         scale=True, is_training =
+                                                         is_train,
+                                                         updates_collections=None) #decay
+                # 0.99 or 0.95 or 0.90
+                outputs.append(bn_output)
             return outputs[-1]
 
         def get_embedding_variable(var_name, embedding_size, inputs):
@@ -40,15 +48,18 @@ class RelationalNetwork():
         max_num_pair = tf.reduce_max(num_pair)
         # num_pair = tf.cast(tf.reduce_mean(num_pair), tf.int32) #TODO 이렇게 하는게 맞나...
 
-        material_embed = get_embedding_variable('material', embedding_size, material)
-        color_embed = get_embedding_variable('color', embedding_size, color)
-        size_embed = get_embedding_variable('size', embedding_size, size)
-        shape_embed = get_embedding_variable('shape', embedding_size, shape)
+        material_embed = get_embedding_variable('material', cat_embedding_size, material)
+        color_embed = get_embedding_variable('color', cat_embedding_size, color)
+        size_embed = get_embedding_variable('size', cat_embedding_size, size)
+        shape_embed = get_embedding_variable('shape', cat_embedding_size, shape)
 
-        question_embed = get_embedding_variable('question', embedding_size, question)
+        question_embed = get_embedding_variable('question', word_embedding_size, question)
 
         with tf.variable_scope('question_embedding'):
-            rnn_cell = tf.contrib.rnn.LSTMCell(num_units=self.rnn_hidden_dim)
+            rnn_cell = tf.contrib.rnn.LSTMCell(num_units=self.rnn_hidden_dim,
+                                               cell_clip = 1.0,
+                                               proj_clip = 1.0
+                                               )
             outputs, last_states = tf.nn.dynamic_rnn(cell=rnn_cell,
                                                      inputs=question_embed,
                                                      dtype=tf.float32
@@ -76,10 +87,11 @@ class RelationalNetwork():
 
 
 
-        concat_vars = [xyz_coords, pixel_coords, material_embed, color_embed, size_embed, shape_embed, question_embedding]
+        # concat_vars = [xyz_coords, pixel_coords, material_embed, color_embed, size_embed, shape_embed, question_embedding]
         input_concat = tf.concat([xyz_coords, material_embed, color_embed, size_embed, shape_embed, question_embedding], axis=2)
 
-        dimension_sum = int(6 + embedding_size * 2 * 4 + rnn_hidden_dim) # 6은 coords 변수 2개, embedding size에다가 obj1과 obj2 concat해서 *2하고 이런 변수가 5개니까 곱하기 5 + question embedding
+        dimension_sum = int(6 + cat_embedding_size * 2 * 4 + rnn_hidden_dim) # 6은 coords 변수
+        #  2개, embedding size에다가 obj1과 obj2 concat해서 *2하고 이런 변수가 5개니까 곱하기 5 + question embedding
 
         self.num_pair = num_pair
         with tf.variable_scope('g_theta'):
@@ -107,22 +119,25 @@ class RelationalNetwork():
                                                             activation_fn=tf.nn.relu)
 
         with tf.variable_scope('loss'):
-            softmax = tf.nn.softmax(self.output)
+            # softmax = tf.nn.softmax(self.output)
+            #
+            # self.loss = -tf.reduce_mean(tf.one_hot(answer,
+            #                                        depth=len(idx_to_value['answer'])) *
+            #                           tf.log(tf.add(softmax, tf.constant(1e-12))))
 
-            self.loss = -tf.reduce_mean(tf.one_hot(answer,
-                                                   depth=len(idx_to_value['answer'])) *
-                                      tf.log(tf.add(softmax, tf.constant(1e-12))))
+            self.loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(labels=answer, logits=self.output))
 
         with tf.variable_scope('accuracy'):
             self.prediction = tf.argmax(self.output, axis=1)
             self.accuracy = tf.reduce_mean(tf.cast(tf.equal(self.prediction, answer), tf.float32))
 
-            # self.loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(labels=answer, logits=self.output))
+
 
         if is_train:
             with tf.variable_scope('train'):
                 self.global_step = tf.Variable(0, trainable=False, name='global_step')
-                self.train_op = tf.train.AdamOptimizer(1e-4).minimize(self.loss, global_step=self.global_step)
+                self.train_op = tf.train.AdamOptimizer(1e-4).minimize(self.loss,
+                                                                   global_step=self.global_step)
 
             # (outputs, output_state_fw, output_state_bw) = \
             #     tf.contrib.rnn.stack_bidirectional_dynamic_rnn(

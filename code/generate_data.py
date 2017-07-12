@@ -5,22 +5,22 @@ import numpy as np
 def read_and_preprocess_question_data(data_path, convert_dict = None):
     d = json.loads(open(data_path).read())
     word_set = set()
-    text_data = list()
     answer_word_set = set()
-    answer_text_data = list()
+    qa_data = collections.defaultdict(list)
+
     for q_obj in d['questions']:
+        img_idx = q_obj['image_index']
         q_text = q_obj['question'].lower()
         q_text = re.sub('\s+', ' ', q_text)
         q_text_without_question_mark = q_text[:-1]
-        words = q_text_without_question_mark.split(' ')
-        words.append('?')
-        text_data.append(words)
-        word_set.update(words)
+        q_words = q_text_without_question_mark.split(' ')
+        word_set.update(q_words)
 
         a_text = q_obj['answer'].lower()
         a_text = re.sub('\s+', ' ', a_text)
-        answer_text_data.append(a_text)
         answer_word_set.add(a_text)
+
+        qa_data[img_idx].append((q_words, a_text))
 
     if convert_dict:
         word_to_idx, idx_to_word, answer_word_to_idx, answer_idx_to_word = convert_dict
@@ -37,22 +37,21 @@ def read_and_preprocess_question_data(data_path, convert_dict = None):
             answer_word_to_idx[word] = idx
             answer_idx_to_word[idx] = word
 
-    text_data_idx_form = list()
-    for sentence in text_data:
-        text_data_idx_form.append([word_to_idx[word] for word in sentence])
+    qa_idx_data = collections.defaultdict(list)
+    for img_idx, qa_list in qa_data.items():
+        for q_word_list, answer_word in qa_list:
+            q = [word_to_idx[word] for word in q_word_list]
+            a = answer_word_to_idx[answer_word]
+            qa_idx_data[img_idx].append((q, a))
 
-    answer_text_data_idx_form = list()
-    for word in answer_text_data:
-        answer_text_data_idx_form.append(answer_word_to_idx[word])
 
-    return text_data_idx_form, answer_text_data_idx_form, word_to_idx, idx_to_word, answer_word_to_idx, answer_idx_to_word
+    return qa_idx_data, word_to_idx, idx_to_word, answer_word_to_idx, answer_idx_to_word
 
 
 
 def read_and_preprocess_input_data(data_path):
     scene = json.loads(open(data_path).read())
-
-    data = collections.defaultdict(list)
+    data = list()
 
     value_to_idx = dict()
     value_to_idx['color'] =  {'blue' : 1,
@@ -73,8 +72,8 @@ def read_and_preprocess_input_data(data_path):
 
     for element in scene['scenes']:
         obj_list = element['objects']
+        img_idx = element['image_index']
         row = collections.defaultdict(list)
-        len_key = len(obj_list)
         for obj1, obj2 in itertools.combinations(obj_list, 2):
             for key in obj1:
                 tmp = list()
@@ -89,7 +88,7 @@ def read_and_preprocess_input_data(data_path):
                 if key == '3d_coords':
                     key = 'xyz_coords'
                 row[key].append(tmp)
-        data[len_key].append(row)
+        data.append((row, img_idx))
 
     return data, idx_to_value
 
@@ -121,11 +120,6 @@ def make_example(xyz_coords, rotation, color, size, shape, material, pixel_coord
     c_a = ex.context.feature['answer']
 
     c_obj_pair_num = ex.context.feature['num_pair']
-
-
-    #         c_key_en_len = ex.context.feature['HW_KEY_EN_NM_LIST_LEN']
-    #         c_en_len = ex.context.feature['HW_EN_NM_LIST_LEN']
-    #         c_work_nm_len = ex.context.feature['WORK_NM_LEN']
 
     def add_seq(f, value_list, dtype):
         if dtype == 'int64':
@@ -204,35 +198,11 @@ def read_and_decode(filename_queue):
     return decoded_data, context_parsed
 
 
-def inputs(data_type, obj_len_list, batch_size, num_epochs, num_threads=1):
-    # filename = [os.path.join(data_dir, data_name) for data_name
-    #             in data_name_list]
-
-    filename = ['/home/jinwon/PycharmProjects/Relational_Network/code/processed_data/' + 'input_data_{}_len_{}.tfrecords'.format(data_type, len_key) for len_key in obj_len_list]
+def inputs(data_type, batch_size, num_epochs, num_threads=1):
+    filename = ['processed_data/input_data_{}.tfrecords'.format(data_type)]
     filename_queue = tf.train.string_input_producer(filename, num_epochs)
     reader_sequence_output, reader_context_output = read_and_decode(filename_queue)
 
-    # upg_no = reader_sequence_output['UPG_NO']
-    # eitem_no = reader_sequence_output['E_ITEM_NO']
-    # hw_key_en_nm = reader_sequence_output['HW_KEY_EN_NM_LIST']
-    # hw_en_nm = reader_sequence_output['HW_EN_NM_LIST']
-    # work_nm = reader_sequence_output['WORK_NM']
-    #
-    # hw_key_en_nm_len = reader_context_output['HW_KEY_EN_NM_LIST_LEN']
-    # hw_en_nm_len = reader_context_output['HW_EN_NM_LIST_LEN']
-    # work_nm_len = reader_context_output['WORK_NM_LEN']
-
-    # reader_sequence_output['xyz_coords'].set_shape((num_object_pair, 6))
-    # reader_sequence_output['pixel_coords'].set_shape((num_object_pair, 6))
-    # reader_sequence_output['material'].set_shape((num_object_pair, 2))
-    # reader_sequence_output['rotation'].set_shape((num_object_pair, 2))
-    # reader_sequence_output['size'].set_shape((num_object_pair, 2))
-    # reader_sequence_output['color'].set_shape((num_object_pair, 2))
-    # reader_sequence_output['shape'].set_shape((num_object_pair, 2))
-
-    # 'xyz_coords', 'material', 'size', 'rotation', 'pixel_coords', 'color', 'shape'
-    # , reader_context_output['num_pair'],
-    # reader_sequence_output['color'], reader_sequence_output['pixel_coords']
     batch = tf.train.batch([reader_sequence_output['xyz_coords'],
                             reader_sequence_output['pixel_coords'],
                             reader_sequence_output['rotation'],
@@ -250,100 +220,68 @@ def inputs(data_type, obj_len_list, batch_size, num_epochs, num_threads=1):
 
     return batch
 
+def prepare_data():
+    def prepare_tfrecords(data_type):
 
-def prepare_data(len_key_list):
-    def prepare_tfrecords(len_key_list, data_type):
-        to_make_ilst = list()
-        for len_key in len_key_list:
-            filename = '/home/jinwon/PycharmProjects/Relational_Network/code/processed_data/input_data_{}_len_{}.tfrecords'.format(
-                data_type, len_key)
-            if not os.path.exists(filename):
-                to_make_ilst.append(len_key)
+        filename = '/home/jinwon/PycharmProjects/Relational_Network/code/processed_data/input_data_{}.tfrecords'.format(data_type)
 
-        if not to_make_ilst:
+        if os.path.exists(filename):
+            print('{} exists'.format(filename))
             return
         else:
-            if os.path.exists('processed_data/input_data_{}.pkl'.format(data_type)):
+            pickled_input_data = 'processed_data/input_data_{}.pkl'.format(data_type)
+            if os.path.exists(pickled_input_data):
                 print('loaded input_data_{}.pkl'.format(data_type))
-                with open('processed_data/input_data_{}.pkl'.format(data_type), 'rb') as f:
+                with open(pickled_input_data, 'rb') as f:
                     data = pickle.load(f)
             else:
                 print('processing input_data_{}.pkl'.format(data_type))
-                data_path = '/home/jinwon/Downloads/CLEVR_v1.0/scenes/CLEVR_{}_scenes.json'.format(data_type)
+                data_path = 'data/CLEVR_v1.0/scenes/CLEVR_{}_scenes.json'.format(data_type)
                 data, idx_to_value = read_and_preprocess_input_data(data_path)
-                with open('processed_data/input_data_{}.pkl'.format(data_type), 'wb') as f:
+                with open(pickled_input_data, 'wb') as f:
                     pickle.dump(data, f)
 
                 with open('processed_data/idx_to_value.pkl', 'wb') as f:
                     pickle.dump(idx_to_value, f)
 
             if os.path.exists('processed_data/question_data_{}.pkl'.format(data_type)):
-                print('loaded question_data_{}.pkl'.format(data_type))
-                with open('processed_data/question_data_{}.pkl'.format(data_type) ,'rb') as f:
-                    question_data = pickle.load(f)
-                with open('processed_data/answer_data_{}.pkl'.format(data_type) ,'rb') as f:
-                    answer_data = pickle.load(f)
+                print('loaded qa_data_{}.pkl'.format(data_type))
+                # with open('processed_data/question_data_{}.pkl'.format(data_type) ,'rb') as f:
+                #     question_data = pickle.load(f)
+                # with open('processed_data/answer_data_{}.pkl'.format(data_type) ,'rb') as f:
+                #     answer_data = pickle.load(f)
+
+                with open('processed_data/qa_data_{}.pkl'.format(data_type), 'wb') as f:
+                    qa_data = pickle.load(f)
             else:
                 print('processing question_data_{}.pkl'.format(data_type))
-                data_path = '/home/jinwon/Downloads/CLEVR_v1.0/questions/CLEVR_{}_questions.json'.format(data_type)
+                data_path = 'data/CLEVR_v1.0/questions/CLEVR_{}_questions.json'.format(data_type)
                 if data_type == 'train':
-                    question_data, answer_data, word_to_idx, idx_to_word, answer_word_to_idx, answer_idx_to_word = read_and_preprocess_question_data(data_path)
+                    qa_data, word_to_idx, idx_to_word, answer_word_to_idx, \
+                    answer_idx_to_word = read_and_preprocess_question_data(data_path)
                     with open('processed_data/question_answer_dict.pkl', 'wb') as f:
                         pickle.dump([word_to_idx, idx_to_word, answer_word_to_idx, answer_idx_to_word], f)
                 else:
                     with open('processed_data/question_answer_dict.pkl', 'rb') as f:
                         convert_dict = pickle.load(f)
-                    question_data, answer_data, word_to_idx, idx_to_word, answer_word_to_idx, answer_idx_to_word = read_and_preprocess_question_data(data_path, convert_dict)
+                    qa_data, word_to_idx, idx_to_word, answer_word_to_idx, \
+                    answer_idx_to_word = read_and_preprocess_question_data(data_path, convert_dict)
 
-                with open('processed_data/question_data_{}.pkl'.format(data_type), 'wb') as f:
-                    pickle.dump(question_data, f)
-                with open('processed_data/answer_data_{}.pkl'.format(data_type), 'wb') as f:
-                    pickle.dump(answer_data, f)
+                with open('processed_data/qa_data_{}.pkl'.format(data_type), 'wb') as f:
+                    pickle.dump(qa_data, f)
 
-            for len_key in to_make_ilst:
-                filename = '/home/jinwon/PycharmProjects/Relational_Network/code/processed_data/input_data_{}_len_{}.tfrecords'.format(
-                    data_type, len_key)
-                writer = tf.python_io.TFRecordWriter(filename)
-                for input_row, question_row, answer_row in zip(data[len_key], question_data, answer_data):
-                    ex = make_example(**input_row, question=question_row, answer=answer_row)
+            filename = '/home/jinwon/PycharmProjects/Relational_Network/code/processed_data/input_data_{}.tfrecords'.format(
+                data_type)
+            writer = tf.python_io.TFRecordWriter(filename)
+
+            for input_row in data:
+                input_data, img_idx = input_row
+                for question, answer in qa_data[img_idx]:
+                    ex = make_example(**input_data, question=question, answer=answer)
                     writer.write(ex.SerializeToString())
-                writer.close()
-                print('tfrecord {} {} made'.format(data_type, len_key))
+            writer.close()
+            print('tfrecord {} made'.format(data_type))
 
-    prepare_tfrecords(len_key_list, 'train')
-    prepare_tfrecords(len_key_list, 'val')
+    prepare_tfrecords('train')
+    prepare_tfrecords('val')
 
-
-def run_test():
-    len_key = 6
-    num_pair = int(len_key * (len_key - 1) / 2)
-    prepare_data(len_key)
-    batch_size = 128
-    num_epochs = 10
-    with tf.Graph().as_default():
-        data_name_list = [len_key]
-        a = inputs(data_name_list, batch_size, num_epochs, num_pair)
-        count = 0
-        with tf.Session() as sess:
-            sess.run(tf.local_variables_initializer())
-            coord = tf.train.Coordinator()
-            threads = tf.train.start_queue_runners(sess, coord)
-            try:
-                while not coord.should_stop():
-                    b = sess.run(a)
-                    for elem in b:
-                        print(elem.shape)
-                    print('-------------------')
-                    count += 1
-
-            except tf.errors.OutOfRangeError:
-                print('Done training --epoch limit reached')
-                print(count)
-            finally:
-                coord.request_stop()
-            coord.join(threads)
-
-
-if __name__ == '__main__':
-    run_test()
-    # print('hello')
