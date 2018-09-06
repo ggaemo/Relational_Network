@@ -28,12 +28,15 @@ def read_and_preprocess_question_data(data_path, convert_dict = None):
         word_to_idx = dict()
         idx_to_word = dict()
         for idx, word in enumerate(word_set, start=1):
+            # index starts with 1 because 0 is used as the padded value when batches are
+            #  created
             word_to_idx[word] = idx
             idx_to_word[idx] = word
 
         answer_word_to_idx = dict()
         answer_idx_to_word = dict()
         for idx, word in enumerate(answer_word_set, start=0):
+            # single answer, so no padded values of 0 are created. thus index starts with 0
             answer_word_to_idx[word] = idx
             answer_idx_to_word[idx] = word
 
@@ -49,7 +52,7 @@ def read_and_preprocess_question_data(data_path, convert_dict = None):
 
 
 
-def read_and_preprocess_input_data(data_path):
+def read_and_preprocess_scene_data(data_path):
     scene = json.loads(open(data_path).read())
     data = list()
 
@@ -198,7 +201,7 @@ def read_and_decode(filename_queue):
     return decoded_data, context_parsed
 
 
-def inputs(data_type, batch_size, num_epochs, num_threads=1):
+def inputs(data_type, batch_size, num_epochs, num_threads=10):
     filename = ['processed_data/input_data_{}.tfrecords'.format(data_type)]
     filename_queue = tf.train.string_input_producer(filename, num_epochs)
     reader_sequence_output, reader_context_output = read_and_decode(filename_queue)
@@ -216,19 +219,31 @@ def inputs(data_type, batch_size, num_epochs, num_threads=1):
                             reader_context_output['question_word_len']
                             ],
                              batch_size, dynamic_pad=True, allow_smaller_final_batch=False,
-                           capacity = batch_size * 2, num_threads=num_threads)
+                           capacity = batch_size * 10, num_threads=num_threads)
 
+    # dataset = tf.data.Dataset.list_files(filename)
+    # dataset = dataset.map(read_and_decode, num_parallel_calls=1)
+    # dataset = dataset.prefetch(batch_size * 100)
+    # dataset = dataset.shuffle(buffer_size= 1000)
+    # dataset = dataset.apply(tf.contrib.data.batch_and_drop_remainder(batch_size))
+    # dataset = dataset.repeat(num_epochs)
+    #
+    # iterator = dataset.make_one_shot_iterator()
+    # batch = iterator.get_next()
     return batch
 
 def prepare_data():
     def prepare_tfrecords(data_type):
 
-        filename = '/home/jinwon/PycharmProjects/Relational_Network/code/processed_data/input_data_{}.tfrecords'.format(data_type)
+        filename = 'processed_data/input_data_{}.tfrecords'.format(data_type)
 
         if os.path.exists(filename):
             print('{} exists'.format(filename))
             return
         else:
+            if not os.path.exists('processed_data'):
+                os.makedirs('processed_data')
+
             pickled_input_data = 'processed_data/input_data_{}.pkl'.format(data_type)
             if os.path.exists(pickled_input_data):
                 print('loaded input_data_{}.pkl'.format(data_type))
@@ -237,7 +252,7 @@ def prepare_data():
             else:
                 print('processing input_data_{}.pkl'.format(data_type))
                 data_path = 'data/CLEVR_v1.0/scenes/CLEVR_{}_scenes.json'.format(data_type)
-                data, idx_to_value = read_and_preprocess_input_data(data_path)
+                data, idx_to_value = read_and_preprocess_scene_data(data_path)
                 with open(pickled_input_data, 'wb') as f:
                     pickle.dump(data, f)
 
@@ -270,7 +285,7 @@ def prepare_data():
                 with open('processed_data/qa_data_{}.pkl'.format(data_type), 'wb') as f:
                     pickle.dump(qa_data, f)
 
-            filename = '/home/jinwon/PycharmProjects/Relational_Network/code/processed_data/input_data_{}.tfrecords'.format(
+            filename = 'processed_data/input_data_{}.tfrecords'.format(
                 data_type)
             writer = tf.python_io.TFRecordWriter(filename)
 
