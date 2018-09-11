@@ -188,14 +188,20 @@ class RelationalNetwork():
             # this layer is a softmax activation layer
 
         with tf.variable_scope('loss'):
-            # softmax = tf.nn.softmax(self.output)
-            #
-            # self.loss = -tf.reduce_mean(tf.one_hot(answer,
-            #                                        depth=len(idx_to_value['answer'])) *
-            #                           tf.log(tf.add(softmax, tf.constant(1e-12))))
+
             ans = tf.squeeze(ans, 1)
 
-            self.loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(labels=ans, logits=self.output))
+            # softmax = tf.nn.softmax(self.output)
+            #
+            # self.loss = -tf.reduce_mean(tf.one_hot(ans,
+            #                                        depth=len(idx_to_value['answer'])) *
+            #                           tf.log(tf.add(softmax, tf.constant(1e-12))))
+
+            self.loss_raw =tf.nn.sparse_softmax_cross_entropy_with_logits(labels=ans, logits=self.output)
+            self.loss_raw = tf.check_numerics(self.loss_raw, 'nan value found in loss raw')
+            self.loss = tf.reduce_mean(self.loss_raw)
+
+
 
         with tf.variable_scope('summary'):
             self.prediction = tf.argmax(self.output, axis=1)
@@ -205,22 +211,21 @@ class RelationalNetwork():
             # self.average_loss, _ = tf.metrics.mean(self.loss,
             #                                     updates_collections=tf.GraphKeys.UPDATE_OPS)
 
-            self.average_loss = self.loss
-
             # self.accuracy = tf.reduce_sum(tf.cast(tf.equal(self.prediction, ans),
             #                                     tf.float32))
 
             summary_trn = list()
             summary_trn.append(tf.summary.scalar('trn_accuracy', self.accuracy))
-            summary_trn.append(tf.summary.scalar('trn_average_loss',
-                                                      self.average_loss))
+
+            self.trn_loss_summary = tf.summary.scalar('trn_loss', self.loss)
+
 
             self.summary_trn = tf.summary.merge(summary_trn)
 
             summary_test = list()
             summary_test.append(tf.summary.scalar('test_accuracy', self.accuracy))
-            summary_test.append(tf.summary.scalar('test_average_loss',
-                                                       self.average_loss))
+
+            self.test_loss_summary = tf.summary.scalar('test_loss', self.loss)
 
             self.summary_test = tf.summary.merge(summary_test)
 

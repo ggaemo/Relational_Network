@@ -5,7 +5,6 @@ import pickle
 import time
 import argparse
 import os
-import re
 import numpy as np
 
 parser = argparse.ArgumentParser()
@@ -94,74 +93,72 @@ with tf.Graph().as_default():
     config = tf.ConfigProto()
     config.gpu_options.allow_growth =True
     with tf.Session(config=config) as sess:
-        sess.run(tf.local_variables_initializer())
-        sess.run(tf.global_variables_initializer())
-        sess.run(trn_init_op)
+        global_step = 0
         if restore:
             latest_model = tf.train.latest_checkpoint(model_dir)
             print('restored model from ', latest_model)
             saver.restore(sess, latest_model)
+        else:
+            sess.run(tf.global_variables_initializer())
+
         for i in range(num_epochs):
             print('epoch num', i)
             prev = time.time()
+            sess.run(trn_init_op)
+            sess.run(tf.local_variables_initializer())
             try:
-
-                # e, a, l = sess.run([model.encoded_qst, model.all_qst, model.qst_len],
-                #                    {model.is_training :True})
-                #
-                # pair_output, pair_output_lower, mask = sess.run(model.get,
-                #                                               {model.is_training:True})
-
-                # all, low = sess.run([model.encoded_img_qst_all, model.encoded_img_qst_low],
-                #          {model.is_training:True})
-
                 while True:
-                    _, global_step = sess.run([model.train_op, model.global_step])
-                    if global_step % 500 == 0:
-                        print(global_step, sess.run(model.average_loss))
+
+                    if global_step % 3000 == 0:
+                        _, global_step, trn_loss_summary = sess.run([model.train_op,
+                                                          model.global_step,
+                                                   model.trn_loss_summary])
+                        summary_writer.add_summary(trn_loss_summary, i)
+
+                        # pred = sess.run(model.prediction)
+                        # print('train pred', pred)
+                    else:
+                        _, global_step = sess.run([model.train_op, model.global_step])
 
             except tf.errors.OutOfRangeError:
                 print('out of range')
                 now = time.time()
-                summary_value, trn_acc, trn_loss = sess.run([model.summary_trn,
-                                                             model.accuracy,
-                                                             model.average_loss])
+                summary_value, trn_acc = sess.run([model.summary_trn,
+                                                   model.accuracy])
                 summary_writer.add_summary(summary_value, global_step=i)
-
-                # trn_loss, trn_acc = sess.run([model.loss,
-                #                               model.accuracy])
-                # trn_acc = trn_acc / batch_size
-
-                # test_loss = 0
-                # test_acc = 0
-                # for _ in range(test_data_size // test_batch_size + 1):
-                #     test_loss_batch, test_acc_batch = sess.run([model.loss,
-                #                                                 model.accuracy])
-                #     test_loss += test_loss_batch
-                #     test_acc += test_acc_batch
-                #
-                # test_loss = test_loss / test_data_size * test_batch_size
-                # test_acc = test_acc / test_data_size
 
                 sess.run(test_init_op)
                 sess.run(tf.local_variables_initializer()) # metrics value init to 0
 
                 try:
                     print('test_start')
+                    tmp_step = 0
                     while True:
-                        _, summary_value, test_acc, test_loss = sess.run([model.update_ops,
-                                                                       model.summary_test,
-                                                                     model.accuracy,
-                                                                     model.average_loss])
+                        if tmp_step % 3000 == 0:
+                            _, test_loss_summary = sess.run([model.update_ops,
+                                                 model.test_loss_summary])
+                            print('model accruacy test', sess.run(model.accuracy))
+                            summary_writer.add_summary(test_loss_summary, global_step=i)
+
+                            # pred = sess.run(model.prediction)
+                            # print('test pred', pred)
+
+                        else:
+                            sess.run(model.update_ops)
+                        tmp_step += 1
+
                 except tf.errors.OutOfRangeError:
                     print('test_start end')
+                    summary_value, test_acc = sess.run([model.summary_test,
+                                                       model.accuracy])
                     summary_writer.add_summary(summary_value, global_step=i)
-                    sess.run(tf.local_variables_initializer())
+
+
 
                 minutes = (now - prev) / 60
-                result = 'global_step: {} | trn_loss : {} trn_acc : {} test loss : {} test acc : {}'.format(
-                    global_step, trn_loss,
-                    trn_acc, test_loss, test_acc)
+                result = 'num iter: {} | trn_acc : {} test acc : {}'.format(
+                    global_step, trn_acc, test_acc)
+
                 message = 'took {} min'.format(minutes)
                 print(model_dir)
                 print(result)
@@ -172,6 +169,6 @@ with tf.Graph().as_default():
 
                 # print([idx_to_value['answer'][x] for x in trn_pred])
                 # print([idx_to_value['answer'][x] for x in test_pred])
-                saver.save(sess, model_dir + '/model.ckpt', global_step=global_step)
+                saver.save(sess, model_dir + '/model.ckpt', global_step=i)
 
         terminal_output.close()
