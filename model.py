@@ -4,7 +4,7 @@ import ops
 
 class RelationalNetwork():
 
-    def __init__(self, inputs, idx_to_value,
+    def __init__(self, inputs, qst_vocab_size, ans_vocab_size,
                  word_embedding_size, g_theta_layers, f_phi_layers, img_encoding_layers,
                  rnn_hidden_dim):
 
@@ -37,22 +37,30 @@ class RelationalNetwork():
             for layer_num, layer_config in enumerate(layer_config):
                 (num_filter, kernel_size, stride) = layer_config
                 with tf.variable_scope('conv_layer_{}'.format(layer_num)):
-                    input = ops.conv(input, num_filter, kernel_size, stride, 'ln',
+                    input = ops.conv(input, num_filter, kernel_size, stride, 'bn',
                                      tf.nn.relu, self.is_training)
                     print(input.shape)
             return input
 
-
-        def get_embedding_variable(var_name, embedding_size, inputs):
-            vocab_size = len(idx_to_value[var_name])
+        def get_embedding_variable(inputs, vocab_size, embedding_size):
             with tf.variable_scope('embedding_layer'):
-                variable_embeddings = tf.get_variable(name='variable_embeddings_{}'.format(var_name),
+                variable_embeddings = tf.get_variable(name='variable_embeddings',
                                                       shape=[vocab_size, embedding_size],
                                                       initializer=tf.random_uniform_initializer(-1, 1))
 
                 embed_variable = tf.nn.embedding_lookup(variable_embeddings, inputs,
-                                                        name='variable_lookup_{}'.format(var_name))
+                                                        name='variable_lookup')
             return embed_variable
+
+        def build_coord_tensor(batch_size, height):
+            coord = tf.linspace(-height / 2, height / 2, height)
+            x = tf.tile(tf.expand_dims(coord, 0), [height, 1])
+            y = tf.tile(tf.expand_dims(coord, 1), [1, height])
+
+            coord_xy = tf.stack((x, y), axis=2)
+            coord_xy_batch = tf.tile(tf.expand_dims(coord_xy, 0), [batch_size, 1, 1, 1])
+            print('coord_xy shape', coord_xy_batch.shape)
+            return coord_xy_batch
 
         img = inputs['img']
 
@@ -71,97 +79,96 @@ class RelationalNetwork():
         # width = tf.shape(img)[2]
         # num_input_channel = tf.shape(img)[-1]
 
-        question_embed = get_embedding_variable('question', word_embedding_size, qst)
-
         with tf.variable_scope('question_embedding'):
+            question_embed = get_embedding_variable(qst, qst_vocab_size,
+                                                    word_embedding_size)
             rnn_cell = tf.contrib.rnn.LSTMCell(num_units=self.rnn_hidden_dim)
             rnn_outputs, last_states = tf.nn.dynamic_rnn(cell=rnn_cell,
                                                          inputs=question_embed,
                                                          dtype=tf.float32,
                                                          sequence_length=qst_len,
                                                          parallel_iterations=71
-
                                                      )
-
-        #     qst_len_index_by_batch = tf.stack(
-        #         [tf.range(qst_len.get_shape()[0],dtype=tf.int64),
-        #          qst_len], axis=1)
-        #     # for each instance, get the last hidden vector (this is needed because the
-        #     # length of each question is different and padding of 0 occurs with batching
-        #
-        #     question_embedding = tf.gather_nd(outputs,qst_len_index_by_batch)
-        #     # tf.gather_nd, indices defines slices into the first N dimensions of params, where N = indices.shape[-1].
-        #     question_embedding = tf.expand_dims(question_embedding, axis=1) # to make
-        #     # this as a sequence of length 1.
-        #     # question_embedding.shape = (batch_size, 1, question_word_embedding_size)
-        #
-        # mask = tf.sequence_mask(num_pair, max_num_pair, dtype=tf.float32)
-        # mask = tf.expand_dims(mask, axis=2)
-        # question_embedding = tf.multiply(question_embedding, mask) # supports broadcasting
-
-        #TODO check if dynamic_rnn gets the last state according to the sequence_length
-        # input given
+            #if parallel_iteration is given 71, it overcomes some strange error
+            # tensorflow dynamic rnn puts out when the length is 32
 
         # encoded_qst = rnn_outputs[:, -1, :] # check if this last state is the legitmate
         # -> NO! it just gets the last element of the output array
 
-        qst_len_index_by_batch = tf.stack(
-            [tf.range(batch_size,dtype=tf.int32),
-             qst_len - 1], axis=1) #This yields the last index of each sequence ( -1 is
-        # needed becuase sequence index starts with 0
+            qst_len_index_by_batch = tf.stack(
+                [tf.range(batch_size,dtype=tf.int32),
+                 qst_len - 1], axis=1) #This yields the last index of each sequence ( -1 is
+            # needed becuase sequence index starts with 0
 
-        encoded_qst = tf.gather_nd(rnn_outputs, qst_len_index_by_batch)
-        # tf.gather_nd, indices defines slices into the first N dimensions of params, where N = indices.shape[-1].
+            encoded_qst = tf.gather_nd(rnn_outputs, qst_len_index_by_batch)
+            # tf.gather_nd, indices defines slices into the first N dimensions of params, where N = indices.shape[-1].
 
-        self.encoded_qst = encoded_qst
-        self.all_qst = rnn_outputs
-        self.qst_len = qst_len
-
-        encoded_img = build_conv(img, self.encoding_layers)
-        encode_num_channels = self.encoding_layers[-1][0]
-        reduced_height = int(height / (2 ** len(self.encoding_layers)))
-        num_obj = reduced_height ** 2
+        with tf.variable_scope('image_embedding'):
+            encoded_img = build_conv(img, self.encoding_layers)
 
 
-        # self.get = [reduced_height, num_obj, encoded_img]
+            encode_num_channels = self.encoding_layers[-1][0]
+            reduced_height = int(height / (2 ** len(self.encoding_layers)))
+            num_obj = reduced_height ** 2
 
-        encoded_img_flatten = tf.reshape(encoded_img, [batch_size, num_obj,
-                                                       encode_num_channels])
-        print(encoded_img_flatten.shape)
+            coord_tensor = build_coord_tensor(batch_size, reduced_height)
 
-        # [b, d*d, # feature]
+            encoded_img_coord = tf.concat([encoded_img, coord_tensor], axis=3)
 
-        encoded_qst_expand = tf.expand_dims(encoded_qst, axis=1) # [b, 1, # embed_dim]
-        encoded_qst_tiled =  tf.tile(encoded_qst_expand, [1, num_obj, 1])
-
-        print(encoded_qst_tiled.shape)
-
-        encoded_img_qst = tf.concat([encoded_img_flatten, encoded_qst_tiled], axis=2)
-
-        print(encoded_img_qst.shape)
-        # [b, d*d, # feature + # qst encoding]
-
-        encoded_img_qst = tf.transpose(encoded_img_qst, (0, 2, 1)) # for lower triangle
-        # computation # [b, # feature + # qst encoding, d*d]
-        encoded_img_qst_1 = tf.expand_dims(encoded_img_qst, axis = 3)
-        encoded_img_qst_1 = tf.tile(encoded_img_qst_1, [1, 1, 1, num_obj])
-
-        # self.encoded_img_qst_all = encoded_img_qst_1
+            # self.get = [coord_tensor, encoded_img_coord]
 
 
-        encoded_img_qst_1 = tf.matrix_band_part(encoded_img_qst_1, -1, 0) #lower triangle
+        with tf.variable_scope('image_object_pairing'):
+            print('encoded img_coord', encoded_img_coord.shape)
+            encoded_img_flatten = tf.reshape(encoded_img_coord, [batch_size, num_obj,
+                                                           encode_num_channels + 2])
+            #coord num channel 2
 
-        # self.encoded_img_qst_low = encoded_img_qst_1
+            print(encoded_img_flatten.shape)
+            # [b, d*d, # feature]
 
-        encoded_img_qst_2 = tf.expand_dims(encoded_img_qst, axis=2)
-        encoded_img_qst_2 = tf.tile(encoded_img_qst_2, [1, 1, num_obj, 1])
-        encoded_img_qst_2 = tf.matrix_band_part(encoded_img_qst_2, -1, 0)  # lower triangle
 
-        encoded_img_qst_pair = tf.concat([encoded_img_qst_1, encoded_img_qst_2], axis=1)
-        # [b, # channel, d*d, d*d]
+
+            # encoded_img_qst = tf.concat([encoded_img_flatten, encoded_qst_tiled], axis=2)
+
+            encoded_img_flatten = tf.transpose(encoded_img_flatten, (0, 2, 1)) # for lower triangle
+            # computation # [b, # feature , d*d]
+            encoded_img_flatten_1 = tf.expand_dims(encoded_img_flatten, axis = 3)
+            encoded_img_flatten_1 = tf.tile(encoded_img_flatten_1, [1, 1, 1, num_obj])
+
+            # self.encoded_img_qst_all = encoded_img_qst_1
+
+            encoded_img_flatten_1 = tf.matrix_band_part(encoded_img_flatten_1, -1, 0) #lower#
+            #  triangle
+
+            encoded_img_flatten_2 = tf.expand_dims(encoded_img_flatten, axis=2)
+            encoded_img_flatten_2 = tf.tile(encoded_img_flatten_2, [1, 1, num_obj, 1])
+            encoded_img_flatten_2 = tf.matrix_band_part(encoded_img_flatten_2, -1, 0)  # lower triangle
+
+            encoded_img_pair = tf.concat([encoded_img_flatten_1, encoded_img_flatten_2],
+                                             axis=1)
+            # [b, # channel, d*d, d*d]
+
+        with tf.variable_scope('img_qst_concat'):
+            encoded_qst_expand = tf.reshape(encoded_qst,
+                                            [batch_size, rnn_hidden_dim, 1, 1])
+            # [b, 1,
+            #  rnn_hidden_dim]
+            encoded_qst_tiled = tf.tile(encoded_qst_expand, [1, 1, num_obj, num_obj])
+            encoded_qst_tiled = tf.matrix_band_part(encoded_qst_tiled, -1,
+                                                    0)  # lower triangle
+
+            print(encoded_qst_tiled.shape)
+
+            encoded_img_qst_pair = tf.concat([encoded_img_pair, encoded_qst_tiled], axis=1)
+
+            # [b, # channel + #rnn dim, d*d, d*d]
+
+        tf.add_to_collection('assert', tf.assert_equal(encoded_img_qst_pair, tf.matrix_band_part(
+            encoded_img_qst_pair,-1, 0), message='qst lower'))
 
         encoded_img_qst_pair = tf.transpose(encoded_img_qst_pair, [0, 2, 3, 1])
-        # [b, d*d, d*d,  # channel]
+        # [b, d*d, d*d,  # channel + # rnn dim]
 
         #TODO encoded_img_pst_pair includes self pairs (a_i, a_i) as well as (a_i, a_j)
         #TODO check if lower triangle operation is necessary for computational efficiency
@@ -174,29 +181,25 @@ class RelationalNetwork():
             mask = tf.reshape(tf.matrix_band_part(tf.ones([num_obj, num_obj]), -1,
                                                       0), [1, num_obj, num_obj, 1])
             pair_output_lower = tf.multiply(pair_output, mask)
-            pair_output_sum = tf.reduce_sum(pair_output, (1, 2))
+            pair_output_sum = tf.reduce_sum(pair_output_lower, (1, 2))
 
-            # tf.assert_equal(pair_output_lower, pair_output)
+            # self.a = tf.assert_equal(pair_output_lower, pair_output,
+            #                                                message='lower_pair')
+            #
+            # self.get = [pair_output_lower, pair_output]
 
         with tf.variable_scope('f_phi'):
             print('build f_phi')
             self.f_phi = build_mlp(pair_output_sum, self.f_phi_layers)
 
         with tf.variable_scope('output'):
-            self.output = tf.layers.dense(self.f_phi, len(idx_to_value['answer']),
+            self.output = tf.layers.dense(self.f_phi, ans_vocab_size,
                                           use_bias=False) #use bias is false becuase it
             # this layer is a softmax activation layer
 
         with tf.variable_scope('loss'):
 
             ans = tf.squeeze(ans, 1)
-
-            # softmax = tf.nn.softmax(self.output)
-            #
-            # self.loss = -tf.reduce_mean(tf.one_hot(ans,
-            #                                        depth=len(idx_to_value['answer'])) *
-            #                           tf.log(tf.add(softmax, tf.constant(1e-12))))
-
             self.loss_raw =tf.nn.sparse_softmax_cross_entropy_with_logits(labels=ans, logits=self.output)
             self.loss_raw = tf.check_numerics(self.loss_raw, 'nan value found in loss raw')
             self.loss = tf.reduce_mean(self.loss_raw)
@@ -230,6 +233,7 @@ class RelationalNetwork():
             self.summary_test = tf.summary.merge(summary_test)
 
         self.update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+        self.assert_ops = tf.get_collection('assert')
 
         with tf.variable_scope('train'):
             self.global_step = tf.Variable(0, trainable=False, name='global_step')
@@ -237,8 +241,8 @@ class RelationalNetwork():
             # https://github.com/tensorflow/tensorflow/issues/19568 update_ops crashses
             # wehn rnn length is 32
 
-            with tf.control_dependencies(self.update_ops):
-                self.train_op = tf.train.AdamOptimizer().minimize(self.loss,
+            with tf.control_dependencies(self.update_ops + self.assert_ops):
+                self.train_op = tf.train.AdamOptimizer(2.5*10e-4).minimize(self.loss,
                                                                global_step=self.global_step)
 
 

@@ -1,3 +1,4 @@
+import re
 import model
 import inputs
 import tensorflow as tf
@@ -20,6 +21,7 @@ parser.add_argument('-g_theta_layers', type=int, nargs='+')
 parser.add_argument('-f_phi_layers', type=int, nargs='+')
 parser.add_argument('-img_encoding_layers', type=int, nargs='+')
 parser.add_argument('-option', type=str, default='org')
+parser.add_argument('-run_meta', action='store_true', default=False)
 parser.add_argument('-restore', action='store_true', default=False)
 args = parser.parse_args()
 
@@ -34,6 +36,7 @@ img_encoding_layers = args.img_encoding_layers
 g_theta_layers = args.g_theta_layers # [512, 512, 512]
 f_phi_layers = args.f_phi_layers # [512, 1024]
 option = args.option
+run_meta = args.run_meta
 restore = args.restore
 
 
@@ -49,9 +52,11 @@ model_dir = 'model/{}_{}_{}_{}_{}_{}/'.format(word_embedding_size,
 
 if not os.path.exists(model_dir):
     os.makedirs(model_dir)
-elif not restore:
-    print('directory exists')
+elif 'checkpoint' in os.listdir(model_dir) and not restore:
+    print('saved model exists')
     raise FileExistsError
+
+
 
 with open(os.path.join(model_dir, 'model_config.txt'), 'w') as f:
     f.write('batch size : {}'.format(batch_size))
@@ -66,21 +71,22 @@ with open(os.path.join(model_dir, 'model_config.txt'), 'w') as f:
 terminal_output = open(model_dir+'terminal_output.txt', 'w')
 
 
-with open('data/CLEVR_v1.0/processed_data/idx_to_value.pkl', 'rb') as f:
-    idx_to_value = pickle.load(f)
-
-with open('data/CLEVR_v1.0/processed_data/question_answer_dict.pkl', 'rb') as f:
-    word_to_idx, idx_to_word, answer_word_to_idx, answer_idx_to_word = pickle.load(f)
-
-idx_to_value['question'] = idx_to_word
-idx_to_value['answer'] = answer_idx_to_word
 
 with tf.Graph().as_default():
     next_batch, trn_init_op, test_init_op = inputs.inputs(batch_size)
 
+    with open('data/CLEVR_v1.0/processed_data/question_answer_dict.pkl', 'rb') as f:
+        word_to_idx, idx_to_word, answer_word_to_idx, answer_idx_to_word = pickle.load(f)
+
+        qst_vocab_size = len(word_to_idx)
+        ans_vocab_size = len(answer_word_to_idx)
+
+        qst_vocab_size +=2 # to and START and END token
+        print('START AND END TOKEN ADDED TO QUESTION VOCAB')
+
     with tf.variable_scope('Model', reuse=None):
 
-        model = model.RelationalNetwork(next_batch, idx_to_value,
+        model = model.RelationalNetwork(next_batch, qst_vocab_size, ans_vocab_size,
                                         word_embedding_size, g_theta_layers,
                                         f_phi_layers,
                                         img_encoding_layers_parsed,
@@ -88,20 +94,22 @@ with tf.Graph().as_default():
 
 
 
-    saver = tf.train.Saver()
-    summary_writer = tf.summary.FileWriter(model_dir, flush_secs=5)
     config = tf.ConfigProto()
     config.gpu_options.allow_growth =True
     with tf.Session(config=config) as sess:
+        saver = tf.train.Saver()
+        summary_writer = tf.summary.FileWriter(model_dir, flush_secs=5, graph=sess.graph)
         global_step = 0
         if restore:
             latest_model = tf.train.latest_checkpoint(model_dir)
             print('restored model from ', latest_model)
+            start_epoch_num = int(re.search('model.ckpt-(\d+)', latest_model).group(1))
             saver.restore(sess, latest_model)
         else:
+            start_epoch_num = 0
             sess.run(tf.global_variables_initializer())
 
-        for i in range(num_epochs):
+        for i in range(start_epoch_num, num_epochs):
             print('epoch num', i)
             prev = time.time()
             sess.run(trn_init_op)
@@ -109,22 +117,41 @@ with tf.Graph().as_default():
             try:
                 while True:
 
-                    if global_step % 3000 == 0:
+                    if run_meta:
+                        if global_step % 1000 == 0:
+                            print('run_meta')
+                            run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
+                            run_metadata = tf.RunMetadata()
+
+                            _, global_step, trn_loss_summary = sess.run([model.train_op,
+                                                                         model.global_step,
+                                                                         model.trn_loss_summary],
+                                                                        {
+                                                                            model.is_training: True},
+                                                                        options=run_options,
+                                                                        run_metadata=run_metadata)
+                            summary_writer.add_summary(trn_loss_summary, i)
+                            summary_writer.add_run_metadata(run_metadata, 'step_{}'.format(
+                                global_step),
+                                                            global_step)
+
+                    if global_step % 2000 == 0:
                         _, global_step, trn_loss_summary = sess.run([model.train_op,
                                                           model.global_step,
-                                                   model.trn_loss_summary])
+                                                   model.trn_loss_summary],
+                                                                    {model.is_training:True})
                         summary_writer.add_summary(trn_loss_summary, i)
-
-                        # pred = sess.run(model.prediction)
-                        # print('train pred', pred)
                     else:
-                        _, global_step = sess.run([model.train_op, model.global_step])
+                        _, global_step = sess.run([model.train_op, model.global_step],
+                                                                    {model.is_training:True})
+
 
             except tf.errors.OutOfRangeError:
-                print('out of range')
+                print('out of range', 'iter', global_step)
                 now = time.time()
                 summary_value, trn_acc = sess.run([model.summary_trn,
-                                                   model.accuracy])
+                                                   model.accuracy],
+                                                                    {model.is_training:True})
                 summary_writer.add_summary(summary_value, global_step=i)
 
                 sess.run(test_init_op)
@@ -134,23 +161,24 @@ with tf.Graph().as_default():
                     print('test_start')
                     tmp_step = 0
                     while True:
-                        if tmp_step % 3000 == 0:
+                        if tmp_step % 1000 == 0:
                             _, test_loss_summary = sess.run([model.update_ops,
-                                                 model.test_loss_summary])
-                            print('model accruacy test', sess.run(model.accuracy))
+                                                 model.test_loss_summary],
+                                                                    {
+                                                                        model.is_training:True})
+                            print('accuracy batch test', sess.run(model.accuracy))
                             summary_writer.add_summary(test_loss_summary, global_step=i)
 
-                            # pred = sess.run(model.prediction)
-                            # print('test pred', pred)
-
                         else:
-                            sess.run(model.update_ops)
+                            sess.run(model.update_ops, {model.is_training:False})
                         tmp_step += 1
 
                 except tf.errors.OutOfRangeError:
                     print('test_start end')
                     summary_value, test_acc = sess.run([model.summary_test,
-                                                       model.accuracy])
+                                                       model.accuracy],
+                                                                    {
+                                                                        model.is_training:True})
                     summary_writer.add_summary(summary_value, global_step=i)
 
 
@@ -170,5 +198,6 @@ with tf.Graph().as_default():
                 # print([idx_to_value['answer'][x] for x in trn_pred])
                 # print([idx_to_value['answer'][x] for x in test_pred])
                 saver.save(sess, model_dir + '/model.ckpt', global_step=i)
+
 
         terminal_output.close()

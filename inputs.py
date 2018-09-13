@@ -58,6 +58,8 @@ def read_and_preprocess_question_data(data_path, convert_dict = None):
 
         qa_data[img_idx].append((q_words, a_text))
 
+    word_set = sorted(word_set)
+    answer_word_set = sorted(answer_word_set)
     if convert_dict:
         word_to_idx, idx_to_word, answer_word_to_idx, answer_idx_to_word = convert_dict
     else:
@@ -86,7 +88,7 @@ def read_and_preprocess_question_data(data_path, convert_dict = None):
 
     return qa_idx_data, word_to_idx, idx_to_word, answer_word_to_idx, answer_idx_to_word
 
-def make_seq_tf_record_file(data_type):
+def make_seq_tf_record_file(data_type, qa_data):
 
     def make_example(img, qst, answer):
 
@@ -112,7 +114,7 @@ def make_seq_tf_record_file(data_type):
 
         return example
 
-    qa_data = make_question_data_pickle(data_type)
+    # qa_data = make_question_data_pickle(data_type)
 
     img_files = os.listdir('data/CLEVR_v1.0/images/{}'.format(data_type))
 
@@ -165,6 +167,7 @@ def inputs(batch_size, num_parallel_calls=10):
 
         # question = tf.cast(sequence_parsed['question'], tf.int32)
         question = sequence_parsed['question']
+        question = tf.concat([[100], question, [101]], axis=0) #START 100 END 101
         answer = tf.expand_dims(tf.cast(context_parsed['answer'], tf.int32), axis=0)
         question_len: answer = tf.expand_dims(tf.cast(context_parsed['question_len'], tf.int32), axis=0)
 
@@ -174,8 +177,8 @@ def inputs(batch_size, num_parallel_calls=10):
     def make_dataset(file_list):
         dataset = tf.data.TFRecordDataset(file_list)
         dataset = dataset.map(decode, num_parallel_calls=num_parallel_calls)
-        dataset = dataset.prefetch(batch_size)
-        dataset = dataset.shuffle(buffer_size = batch_size * 4)
+        dataset = dataset.prefetch(batch_size * 20)
+        dataset = dataset.shuffle(buffer_size = batch_size * 20)
         dataset = dataset.padded_batch(batch_size,
                                        padded_shapes={'img': tf.TensorShape([None, None,3                                     ]),
                                                       'ans' : 1,
@@ -187,8 +190,9 @@ def inputs(batch_size, num_parallel_calls=10):
     for data_type in ['train', 'val']:
         dir_path = 'data/CLEVR_v1.0/seq_tfrecord_data/{}/'.format(data_type)
 
+        qa_data = make_question_data_pickle(data_type)
         if len(os.listdir(dir_path)) == 0:
-            make_seq_tf_record_file(data_type)
+            make_seq_tf_record_file(data_type, qa_data)
 
         files_path = [dir_path+x for x in os.listdir(dir_path)]
 
@@ -207,22 +211,54 @@ def inputs(batch_size, num_parallel_calls=10):
     return next_batch, trn_init_op, test_init_op
 
 def test():
+    import matplotlib.pyplot as plt
     with tf.Session() as sess:
-        next_batch, trn_init_op = inputs('val', 20)
+        batch_size = 5
+        next_batch, trn_init_op, test_init_op = inputs(batch_size)
 
-        sess.run(trn_init_op)
-
-
+        with open('data/CLEVR_v1.0/processed_data/question_answer_dict.pkl', 'rb') as f:
+            convert_dict = pickle.load(f)
+        word_to_idx, idx_to_word, answer_word_to_idx, answer_idx_to_word = convert_dict
 
         while True:
+            sess.run(trn_init_op)
+
             a = sess.run(next_batch)
-            import matplotlib.pyplot as plt
-            plt.imshow(a['img'])
-            print(len(a))
 
+            idx_to_word[100] = 'START'
+            idx_to_word[101] = 'END'
+            idx_to_word[0] = '_'
+            print('train')
 
-# make_seq_tf_record_file('train')
-# make_seq_tf_record_file('val')
+            for i in range(batch_size):
+                print([idx_to_word[x] for x in a['qst'][i]])
+                print([answer_idx_to_word[x] for x in a['ans'][i]])
+
+                # plt.imshow(np.asarray(a['img'][i], np.uint8))
+                # plt.imshow(a['img'][i])
+                plt.show()
+                response = input('next')
+                if response == 'n':
+                    continue
+                else:
+                    break
+
+            print('test')
+            sess.run(test_init_op)
+
+            a = sess.run(next_batch)
+
+            for i in range(batch_size):
+                # print([idx_to_word[x] for x in a['qst'][i]])
+                # print([answer_idx_to_word[x] for x in a['ans'][i]])
+                plt.imshow(np.asarray(a['img'][i]), np.uint8)
+                # plt.imshow(a['img'][i])
+                plt.show()
+                response = input('next')
+                if response == 'n':
+                    continue
+                else:
+                    break
 
 if __name__ =='__main__':
     test()

@@ -13,7 +13,7 @@ def conv(x, channels, kernel, stride, norm,
                          strides=stride, padding='same')
     if norm == 'bn':
         x = tf.layers.batch_normalization(x, training=is_training)
-    if norm == 'in':
+    elif norm == 'in':
         x = tf.contrib.layers.instance_norm(x,epsilon=1e-05,
                                             center=True, scale=True)
     elif norm == 'ln':
