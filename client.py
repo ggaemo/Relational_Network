@@ -97,7 +97,7 @@ with tf.Graph().as_default():
     config = tf.ConfigProto()
     config.gpu_options.allow_growth =True
     with tf.Session(config=config) as sess:
-        saver = tf.train.Saver()
+        saver = tf.train.Saver(max_to_keep=5)
         summary_writer = tf.summary.FileWriter(model_dir, flush_secs=5, graph=sess.graph)
         global_step = 0
         if restore:
@@ -117,6 +117,7 @@ with tf.Graph().as_default():
             try:
                 while True:
 
+                    # rnn_outputs, c, h = sess.run(model.get, {model.is_training:True})
                     if run_meta:
                         if global_step % 1000 == 0:
                             print('run_meta')
@@ -151,7 +152,8 @@ with tf.Graph().as_default():
                 now = time.time()
                 summary_value, trn_acc = sess.run([model.summary_trn,
                                                    model.accuracy],
-                                                                    {model.is_training:True})
+                                                                    {
+                                                                        model.is_training:False})
                 summary_writer.add_summary(summary_value, global_step=i)
 
                 sess.run(test_init_op)
@@ -165,7 +167,7 @@ with tf.Graph().as_default():
                             _, test_loss_summary = sess.run([model.update_ops,
                                                  model.test_loss_summary],
                                                                     {
-                                                                        model.is_training:True})
+                                                                        model.is_training:False})
                             print('accuracy batch test', sess.run(model.accuracy))
                             summary_writer.add_summary(test_loss_summary, global_step=i)
 
@@ -178,7 +180,7 @@ with tf.Graph().as_default():
                     summary_value, test_acc = sess.run([model.summary_test,
                                                        model.accuracy],
                                                                     {
-                                                                        model.is_training:True})
+                                                                        model.is_training:False})
                     summary_writer.add_summary(summary_value, global_step=i)
 
 

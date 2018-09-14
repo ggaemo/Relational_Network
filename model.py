@@ -16,14 +16,18 @@ class RelationalNetwork():
 
 
 
-        def build_mlp(inputs, layers):
+        def build_mlp(inputs, layers, drop_out=None):
             print('build mlp')
             outputs = list()
             outputs.append(inputs)
 
-            for layer_dim in layers:
+            for layer_num, layer_dim in enumerate(layers):
                 layer_input = outputs[-1]
                 fc_output = tf.layers.dense(layer_input, layer_dim, activation=tf.nn.relu)
+                if drop_out == layer_num:
+                    fc_output = tf.layers.dropout(fc_output, rate=0.5,
+                                                  training=self.is_training)
+                    print('dropout')
                 # bn_output = tf.layers.batch_normalization(fc_output,
                 #                                          training =is_train)
                                                          # updates_collections=None) #decay
@@ -32,14 +36,31 @@ class RelationalNetwork():
                 outputs.append(fc_output)
             return outputs[-1]
 
-        def build_conv(input, layer_config):
+        def build_conv(input, layers):
             print('build convnet')
-            for layer_num, layer_config in enumerate(layer_config):
+            for layer_num, layer_config in enumerate(layers):
                 (num_filter, kernel_size, stride) = layer_config
                 with tf.variable_scope('conv_layer_{}'.format(layer_num)):
                     input = ops.conv(input, num_filter, kernel_size, stride, 'bn',
                                      tf.nn.relu, self.is_training)
                     print(input.shape)
+            return input
+
+        def build_conv_transpose(input, layers):
+            print('build conv transpose net')
+            for layer_num, layer_config in enumerate(layers[:-1]):
+                (num_filter, kernel_size, stride) = layer_config
+                with tf.variable_scope('conv_layer_{}'.format(layer_num)):
+                    input = ops.conv_transpose(input, num_filter, kernel_size, stride,
+                                               'bn',
+                                     tf.nn.relu, self.is_training)
+                    print(input.shape)
+
+            (num_filter, kernel_size, stride) = layers[-1]
+            with tf.variable_scope('conv_layer_{}'.format(layer_num+1)):
+                input = ops.conv_transpose(input, num_filter, kernel_size, stride,
+                                           'bn',
+                                           tf.nn.tanh, self.is_training)
             return input
 
         def get_embedding_variable(inputs, vocab_size, embedding_size):
@@ -82,26 +103,32 @@ class RelationalNetwork():
         with tf.variable_scope('question_embedding'):
             question_embed = get_embedding_variable(qst, qst_vocab_size,
                                                     word_embedding_size)
-            rnn_cell = tf.contrib.rnn.LSTMCell(num_units=self.rnn_hidden_dim)
+            rnn_cell = tf.contrib.rnn.GRUCell(num_units=self.rnn_hidden_dim)
             rnn_outputs, last_states = tf.nn.dynamic_rnn(cell=rnn_cell,
                                                          inputs=question_embed,
                                                          dtype=tf.float32,
                                                          sequence_length=qst_len,
                                                          parallel_iterations=71
                                                      )
+            # GRU
+            encoded_qst = last_states
+            #LSTM
+            # c, h = last_states
+            # encoded_qst = h
+
             #if parallel_iteration is given 71, it overcomes some strange error
             # tensorflow dynamic rnn puts out when the length is 32
 
-        # encoded_qst = rnn_outputs[:, -1, :] # check if this last state is the legitmate
-        # -> NO! it just gets the last element of the output array
-
-            qst_len_index_by_batch = tf.stack(
-                [tf.range(batch_size,dtype=tf.int32),
-                 qst_len - 1], axis=1) #This yields the last index of each sequence ( -1 is
-            # needed becuase sequence index starts with 0
-
-            encoded_qst = tf.gather_nd(rnn_outputs, qst_len_index_by_batch)
-            # tf.gather_nd, indices defines slices into the first N dimensions of params, where N = indices.shape[-1].
+            '''
+            if you want to use rnn_outputs, use the below  
+            '''
+            # qst_len_index_by_batch = tf.stack(
+            #     [tf.range(batch_size,dtype=tf.int32),
+            #      qst_len - 1], axis=1) #This yields the last index of each sequence ( -1 is
+            # # needed becuase sequence index starts with 0
+            #
+            # encoded_qst = tf.gather_nd(rnn_outputs, qst_len_index_by_batch)
+            # # tf.gather_nd, indices defines slices into the first N dimensions of params, where N = indices.shape[-1].
 
         with tf.variable_scope('image_embedding'):
             encoded_img = build_conv(img, self.encoding_layers)
@@ -117,6 +144,12 @@ class RelationalNetwork():
 
             # self.get = [coord_tensor, encoded_img_coord]
 
+        with tf.variable_scope('decoder'):
+            self.decoding_layers = self.encoding_layers
+            self.decoding_layers[-1][0] = 3 # last channel to have 3 channels
+            recon = build_conv_transpose(encoded_img, self.decoding_layers)
+
+
 
         with tf.variable_scope('image_object_pairing'):
             print('encoded img_coord', encoded_img_coord.shape)
@@ -126,8 +159,6 @@ class RelationalNetwork():
 
             print(encoded_img_flatten.shape)
             # [b, d*d, # feature]
-
-
 
             # encoded_img_qst = tf.concat([encoded_img_flatten, encoded_qst_tiled], axis=2)
 
@@ -190,7 +221,10 @@ class RelationalNetwork():
 
         with tf.variable_scope('f_phi'):
             print('build f_phi')
-            self.f_phi = build_mlp(pair_output_sum, self.f_phi_layers)
+            self.f_phi = build_mlp(pair_output_sum, self.f_phi_layers,
+                                   len(self.f_phi_layers) - 1)
+
+            print('dropout at last layer')
 
         with tf.variable_scope('output'):
             self.output = tf.layers.dense(self.f_phi, ans_vocab_size,
@@ -200,11 +234,16 @@ class RelationalNetwork():
         with tf.variable_scope('loss'):
 
             ans = tf.squeeze(ans, 1)
-            self.loss_raw =tf.nn.sparse_softmax_cross_entropy_with_logits(labels=ans, logits=self.output)
-            self.loss_raw = tf.check_numerics(self.loss_raw, 'nan value found in loss raw')
-            self.loss = tf.reduce_mean(self.loss_raw)
+            xent_loss_raw =tf.nn.sparse_softmax_cross_entropy_with_logits(
+                labels=ans, logits=self.output)
+            xent_loss_raw = tf.check_numerics(xent_loss_raw, 'nan value found '
+                                                                       'in '
+                                                                  'loss raw')
+            self.xent_loss = tf.reduce_mean(xent_loss_raw)
 
+            self.recon_loss = tf.losses.absolute_difference(img, recon)
 
+            self.loss = self.xent_loss + self.recon_loss
 
         with tf.variable_scope('summary'):
             self.prediction = tf.argmax(self.output, axis=1)
@@ -220,15 +259,20 @@ class RelationalNetwork():
             summary_trn = list()
             summary_trn.append(tf.summary.scalar('trn_accuracy', self.accuracy))
 
-            self.trn_loss_summary = tf.summary.scalar('trn_loss', self.loss)
+            trn_loss_summary = [tf.summary.scalar('trn_recon_loss', self.recon_loss),
+                                     tf.summary.scalar('trn_xent_loss', self.xent_loss)]
 
+            self.trn_loss_summary = tf.summary.merge(trn_loss_summary)
 
             self.summary_trn = tf.summary.merge(summary_trn)
 
             summary_test = list()
             summary_test.append(tf.summary.scalar('test_accuracy', self.accuracy))
 
-            self.test_loss_summary = tf.summary.scalar('test_loss', self.loss)
+            test_loss_summary = [tf.summary.scalar('test_recon_loss', self.recon_loss),
+                                tf.summary.scalar('test_xent_loss', self.xent_loss)]
+
+            self.test_loss_summary = tf.summary.merge(test_loss_summary)
 
             self.summary_test = tf.summary.merge(summary_test)
 

@@ -164,6 +164,7 @@ def inputs(batch_size, num_parallel_calls=10):
         image = tf.image.resize_images(image, (128, 128), method=1) # nearest neighbor
 
         image = tf.cast(image, tf.float32)
+        image = (image - 127.5) / 127.5
 
         # question = tf.cast(sequence_parsed['question'], tf.int32)
         question = sequence_parsed['question']
