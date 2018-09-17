@@ -168,18 +168,19 @@ def inputs(batch_size, num_parallel_calls=10):
 
         # question = tf.cast(sequence_parsed['question'], tf.int32)
         question = sequence_parsed['question']
-        question = tf.concat([[100], question, [101]], axis=0) #START 100 END 101
+        question = tf.concat([[95], question, [96]], axis=0) #START 95 END 96
         answer = tf.expand_dims(tf.cast(context_parsed['answer'], tf.int32), axis=0)
-        question_len: answer = tf.expand_dims(tf.cast(context_parsed['question_len'], tf.int32), axis=0)
+        question_len = tf.expand_dims(tf.cast(context_parsed['question_len'], tf.int32), axis=0)
+        question_len += 2 # START TOKEN AND END TOKEN
 
-        return {'img': image, 'qst': question, 'ans': answer,
-        'qst_len':question_len}
+        return {'img': image, 'qst': question, 'ans': answer, 'qst_len':question_len}
 
     def make_dataset(file_list):
         dataset = tf.data.TFRecordDataset(file_list)
         dataset = dataset.map(decode, num_parallel_calls=num_parallel_calls)
-        dataset = dataset.prefetch(batch_size * 20)
-        dataset = dataset.shuffle(buffer_size = batch_size * 20)
+        # dataset = dataset.filter(lambda x: tf.reshape(tf.less(x['qst_len'], 10), []))
+        dataset = dataset.prefetch(batch_size * 2)
+        dataset = dataset.shuffle(buffer_size = batch_size * 10)
         dataset = dataset.padded_batch(batch_size,
                                        padded_shapes={'img': tf.TensorShape([None, None,3                                     ]),
                                                       'ans' : 1,
@@ -214,7 +215,7 @@ def inputs(batch_size, num_parallel_calls=10):
 def test():
     import matplotlib.pyplot as plt
     with tf.Session() as sess:
-        batch_size = 5
+        batch_size = 500
         next_batch, trn_init_op, test_init_op = inputs(batch_size)
 
         with open('data/CLEVR_v1.0/processed_data/question_answer_dict.pkl', 'rb') as f:
@@ -226,8 +227,8 @@ def test():
 
             a = sess.run(next_batch)
 
-            idx_to_word[100] = 'START'
-            idx_to_word[101] = 'END'
+            idx_to_word[95] = 'START'
+            idx_to_word[96] = 'END'
             idx_to_word[0] = '_'
             print('train')
 

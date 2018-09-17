@@ -43,7 +43,7 @@ restore = args.restore
 img_encoding_layers_parsed = [img_encoding_layers[i:i+3] for i in
                               np.arange(len(img_encoding_layers), step =3)]
 
-model_dir = 'model/{}_{}_{}_{}_{}_{}/'.format(word_embedding_size,
+model_dir = 'model/we-{}_rnn-{}_g-{}_f-{}_cnn-{}_{}/'.format(word_embedding_size,
                                               rnn_hidden_dim,
                                               '-'.join([str(x) for x in g_theta_layers]),
                                               '-'.join([str(x) for x in f_phi_layers]),
@@ -78,10 +78,20 @@ with tf.Graph().as_default():
     with open('data/CLEVR_v1.0/processed_data/question_answer_dict.pkl', 'rb') as f:
         word_to_idx, idx_to_word, answer_word_to_idx, answer_idx_to_word = pickle.load(f)
 
+        idx_to_word[0] = '_'
+        qst_vocab_size = len(idx_to_word)
+        idx_to_word[qst_vocab_size] = 'START'
+        idx_to_word[qst_vocab_size+1] = 'END'
+
+        word_to_idx['_'] = 0
+        word_to_idx['START'] = qst_vocab_size
+        word_to_idx['END'] = qst_vocab_size + 1
+
+
         qst_vocab_size = len(word_to_idx)
         ans_vocab_size = len(answer_word_to_idx)
 
-        qst_vocab_size +=2 # to and START and END token
+
         print('START AND END TOKEN ADDED TO QUESTION VOCAB')
 
     with tf.variable_scope('Model', reuse=None):
@@ -115,9 +125,35 @@ with tf.Graph().as_default():
             sess.run(trn_init_op)
             sess.run(tf.local_variables_initializer())
             try:
+
+
                 while True:
 
-                    # rnn_outputs, c, h = sess.run(model.get, {model.is_training:True})
+                    # question_embed, qst_len, rnn_outputs, last_states = sess.run(model.get)
+
+                    if global_step % 2137 == 0:
+                        img, pred, ans, qst = sess.run([model.img, model.prediction,
+                                                    model.ans, model.qst],
+                                                       feed_dict={model.is_training:True})
+                        img = img[:10]
+                        pred = pred[:10]
+                        ans = ans[:10]
+                        qst = qst[:10]
+
+                        ans = [answer_idx_to_word[x] for x in np.squeeze(ans)]
+                        qst = [' '.join([idx_to_word[x] for x in row]) for row in qst]
+                        pred = [answer_idx_to_word[x] for x in np.squeeze(pred)]
+
+
+                        summary = sess.run(model.summary_additional, {model.img_pl:img,
+                                                            model.ans_word: ans,
+                                                            model.qst_word: qst,
+                                                            model.pred_word:pred})
+                        summary_writer.add_summary(summary, global_step=global_step)
+
+                        # flat_1, flat_1_low, flat_2, flat_2_low, encoded_img_pair, \
+                        # encoded_img_qst_pair, encoded_img_qst_pair_tp, pair_output_sum \
+                        #     = sess.run(model.get, {model.is_training:True})
                     if run_meta:
                         if global_step % 1000 == 0:
                             print('run_meta')

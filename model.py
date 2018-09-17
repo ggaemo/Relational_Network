@@ -6,7 +6,7 @@ class RelationalNetwork():
 
     def __init__(self, inputs, qst_vocab_size, ans_vocab_size,
                  word_embedding_size, g_theta_layers, f_phi_layers, img_encoding_layers,
-                 rnn_hidden_dim):
+                 rnn_hidden_dim, **kwargs):
 
         self.g_theta_layers = g_theta_layers
         self.f_phi_layers = f_phi_layers
@@ -14,27 +14,25 @@ class RelationalNetwork():
         self.rnn_hidden_dim = rnn_hidden_dim
         self.is_training = tf.placeholder(tf.bool, shape=None)
 
-
+        self.qst_word = tf.placeholder(tf.string, shape=[None])
+        self.ans_word = tf.placeholder(tf.string, shape=[None])
+        self.pred_word = tf.placeholder(tf.string, shape=[None])
+        self.img_pl = tf.placeholder(tf.float32, shape=[None, 128, 128, 3])
 
         def build_mlp(inputs, layers, drop_out=None):
-            print('build mlp')
-            outputs = list()
-            outputs.append(inputs)
 
             for layer_num, layer_dim in enumerate(layers):
-                layer_input = outputs[-1]
-                fc_output = tf.layers.dense(layer_input, layer_dim, activation=tf.nn.relu)
+                inputs = tf.layers.dense(inputs, layer_dim, activation=tf.nn.relu)
                 if drop_out == layer_num:
-                    fc_output = tf.layers.dropout(fc_output, rate=0.5,
+                    inputs = tf.layers.dropout(inputs, rate=0.5,
                                                   training=self.is_training)
                     print('dropout')
                 # bn_output = tf.layers.batch_normalization(fc_output,
                 #                                          training =is_train)
                                                          # updates_collections=None) #decay
                 # 0.99 or 0.95 or 0.90
-                print(fc_output.shape)
-                outputs.append(fc_output)
-            return outputs[-1]
+                print(inputs.shape)
+            return inputs
 
         def build_conv(input, layers):
             print('build convnet')
@@ -74,7 +72,8 @@ class RelationalNetwork():
             return embed_variable
 
         def build_coord_tensor(batch_size, height):
-            coord = tf.linspace(-height / 2, height / 2, height)
+            # coord = tf.linspace(0.0, height - 1, height)
+            coord = tf.linspace(-height/2, height/2, height)
             x = tf.tile(tf.expand_dims(coord, 0), [height, 1])
             y = tf.tile(tf.expand_dims(coord, 1), [1, height])
 
@@ -85,10 +84,17 @@ class RelationalNetwork():
 
         img = inputs['img']
 
+        self.img = img
+
         img.set_shape([None, 128, 128, 3])
+
         print('img set shape at 128 128 3')
         ans = inputs['ans']
         qst = inputs['qst']
+
+        self.ans = ans
+        self.qst = qst
+
         qst_len = tf.squeeze(inputs['qst_len'], axis=1)
 
         _, height, width, num_input_channel = img.get_shape().as_list()
@@ -103,6 +109,9 @@ class RelationalNetwork():
         with tf.variable_scope('question_embedding'):
             question_embed = get_embedding_variable(qst, qst_vocab_size,
                                                     word_embedding_size)
+
+
+
             rnn_cell = tf.contrib.rnn.GRUCell(num_units=self.rnn_hidden_dim)
             rnn_outputs, last_states = tf.nn.dynamic_rnn(cell=rnn_cell,
                                                          inputs=question_embed,
@@ -112,6 +121,8 @@ class RelationalNetwork():
                                                      )
             # GRU
             encoded_qst = last_states
+
+            self.get = [question_embed, qst_len, rnn_outputs, last_states]
             #LSTM
             # c, h = last_states
             # encoded_qst = h
@@ -144,12 +155,10 @@ class RelationalNetwork():
 
             # self.get = [coord_tensor, encoded_img_coord]
 
-        with tf.variable_scope('decoder'):
-            self.decoding_layers = self.encoding_layers
-            self.decoding_layers[-1][0] = 3 # last channel to have 3 channels
-            recon = build_conv_transpose(encoded_img, self.decoding_layers)
-
-
+        # with tf.variable_scope('decoder'):
+        #     self.decoding_layers = self.encoding_layers
+        #     self.decoding_layers[-1][0] = 3 # last channel to have 3 channels
+        #     recon = build_conv_transpose(encoded_img, self.decoding_layers)
 
         with tf.variable_scope('image_object_pairing'):
             print('encoded img_coord', encoded_img_coord.shape)
@@ -160,25 +169,26 @@ class RelationalNetwork():
             print(encoded_img_flatten.shape)
             # [b, d*d, # feature]
 
-            # encoded_img_qst = tf.concat([encoded_img_flatten, encoded_qst_tiled], axis=2)
-
             encoded_img_flatten = tf.transpose(encoded_img_flatten, (0, 2, 1)) # for lower triangle
             # computation # [b, # feature , d*d]
             encoded_img_flatten_1 = tf.expand_dims(encoded_img_flatten, axis = 3)
             encoded_img_flatten_1 = tf.tile(encoded_img_flatten_1, [1, 1, 1, num_obj])
 
-            # self.encoded_img_qst_all = encoded_img_qst_1
 
             encoded_img_flatten_1 = tf.matrix_band_part(encoded_img_flatten_1, -1, 0) #lower#
             #  triangle
 
             encoded_img_flatten_2 = tf.expand_dims(encoded_img_flatten, axis=2)
             encoded_img_flatten_2 = tf.tile(encoded_img_flatten_2, [1, 1, num_obj, 1])
+
+
             encoded_img_flatten_2 = tf.matrix_band_part(encoded_img_flatten_2, -1, 0)  # lower triangle
+
 
             encoded_img_pair = tf.concat([encoded_img_flatten_1, encoded_img_flatten_2],
                                              axis=1)
             # [b, # channel, d*d, d*d]
+
 
         with tf.variable_scope('img_qst_concat'):
             encoded_qst_expand = tf.reshape(encoded_qst,
@@ -187,7 +197,8 @@ class RelationalNetwork():
             #  rnn_hidden_dim]
             encoded_qst_tiled = tf.tile(encoded_qst_expand, [1, 1, num_obj, num_obj])
             encoded_qst_tiled = tf.matrix_band_part(encoded_qst_tiled, -1,
-                                                    0)  # lower triangle
+                                                    0, name='lower_matrix')  # lower
+            # triangle
 
             print(encoded_qst_tiled.shape)
 
@@ -195,10 +206,11 @@ class RelationalNetwork():
 
             # [b, # channel + #rnn dim, d*d, d*d]
 
-        tf.add_to_collection('assert', tf.assert_equal(encoded_img_qst_pair, tf.matrix_band_part(
-            encoded_img_qst_pair,-1, 0), message='qst lower'))
+        # tf.add_to_collection('assert', tf.assert_equal(encoded_img_qst_pair, tf.matrix_band_part(
+        #     encoded_img_qst_pair,-1, 0), message='qst lower'))
 
         encoded_img_qst_pair = tf.transpose(encoded_img_qst_pair, [0, 2, 3, 1])
+
         # [b, d*d, d*d,  # channel + # rnn dim]
 
         #TODO encoded_img_pst_pair includes self pairs (a_i, a_i) as well as (a_i, a_j)
@@ -212,6 +224,7 @@ class RelationalNetwork():
             mask = tf.reshape(tf.matrix_band_part(tf.ones([num_obj, num_obj]), -1,
                                                       0), [1, num_obj, num_obj, 1])
             pair_output_lower = tf.multiply(pair_output, mask)
+            # pair_output_lower = pair_output
             pair_output_sum = tf.reduce_sum(pair_output_lower, (1, 2))
 
             # self.a = tf.assert_equal(pair_output_lower, pair_output,
@@ -241,7 +254,8 @@ class RelationalNetwork():
                                                                   'loss raw')
             self.xent_loss = tf.reduce_mean(xent_loss_raw)
 
-            self.recon_loss = tf.losses.absolute_difference(img, recon)
+            # self.recon_loss = tf.losses.absolute_difference(img, recon)
+            self.recon_loss = tf.constant(0.0)
 
             self.loss = self.xent_loss + self.recon_loss
 
@@ -250,17 +264,14 @@ class RelationalNetwork():
             self.accuracy, _ = tf.metrics.accuracy(ans, self.prediction,
                                                  updates_collections=tf.GraphKeys.UPDATE_OPS)
 
-            # self.average_loss, _ = tf.metrics.mean(self.loss,
-            #                                     updates_collections=tf.GraphKeys.UPDATE_OPS)
-
-            # self.accuracy = tf.reduce_sum(tf.cast(tf.equal(self.prediction, ans),
-            #                                     tf.float32))
-
             summary_trn = list()
             summary_trn.append(tf.summary.scalar('trn_accuracy', self.accuracy))
 
+
             trn_loss_summary = [tf.summary.scalar('trn_recon_loss', self.recon_loss),
                                      tf.summary.scalar('trn_xent_loss', self.xent_loss)]
+
+
 
             self.trn_loss_summary = tf.summary.merge(trn_loss_summary)
 
@@ -278,6 +289,15 @@ class RelationalNetwork():
 
         self.update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
         self.assert_ops = tf.get_collection('assert')
+
+
+        with tf.variable_scope('img_qst_summary'):
+            additional = list()
+            additional.append(tf.summary.image('img', self.img_pl, max_outputs=10))
+            additional.append(tf.summary.text('ans', self.ans_word))
+            additional.append(tf.summary.text('question', self.qst_word))
+            additional.append(tf.summary.text('prediction', self.pred_word))
+            self.summary_additional = tf.summary.merge(additional)
 
         with tf.variable_scope('train'):
             self.global_step = tf.Variable(0, trainable=False, name='global_step')
