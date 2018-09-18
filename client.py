@@ -1,6 +1,4 @@
 import re
-import model
-import inputs
 import tensorflow as tf
 import pickle
 import time
@@ -10,10 +8,12 @@ import numpy as np
 
 parser = argparse.ArgumentParser()
 
+parser.add_argument('-data', type=str)
 parser.add_argument('-batch_size', type=int)
-parser.add_argument('-test_data_size', type=int, default=149991)
-parser.add_argument('-test_batch_size', type=int, default=128, help='second biggest '
-                                                                    'denominator')
+parser.add_argument('-learning_rate', type=float, default=2.5*1e-4)
+# parser.add_argument('-test_data_size', type=int, default=149991)
+# parser.add_argument('-test_batch_size', type=int, default=128, help='second biggest '
+#                                                                     'denominator')
 parser.add_argument('-num_epochs', type=int, default=10000)
 parser.add_argument('-word_embedding_size', type=int)
 parser.add_argument('-rnn_hidden_dim', type=int)
@@ -26,9 +26,10 @@ parser.add_argument('-restore', action='store_true', default=False)
 args = parser.parse_args()
 
 
+data = args.data
 batch_size = args.batch_size
-test_data_size = args.test_data_size
-test_batch_size = args.test_batch_size
+# test_data_size = args.test_data_size
+# test_batch_size = args.test_batch_size
 num_epochs = args.num_epochs
 word_embedding_size = args.word_embedding_size
 rnn_hidden_dim = args.rnn_hidden_dim
@@ -38,13 +39,15 @@ f_phi_layers = args.f_phi_layers # [512, 1024]
 option = args.option
 run_meta = args.run_meta
 restore = args.restore
+base_learning_rate = args.learning_rate
 
 
 img_encoding_layers_parsed = [img_encoding_layers[i:i+3] for i in
                               np.arange(len(img_encoding_layers), step =3)]
 
-model_dir = 'model/we-{}_rnn-{}_g-{}_f-{}_cnn-{}_{}/'.format(word_embedding_size,
-                                              rnn_hidden_dim,
+model_dir = 'model/{}/bs-{}_we-{}_rnn-{}_g-{}_f-{}_cnn-{}_{}/'.format(data, batch_size,
+                                                                   word_embedding_size,
+                                                                   rnn_hidden_dim,
                                               '-'.join([str(x) for x in g_theta_layers]),
                                               '-'.join([str(x) for x in f_phi_layers]),
                                               '-'.join([str(x) for x in img_encoding_layers]),
@@ -73,35 +76,65 @@ terminal_output = open(model_dir+'terminal_output.txt', 'w')
 
 
 with tf.Graph().as_default():
-    next_batch, trn_init_op, test_init_op = inputs.inputs(batch_size)
-
-    with open('data/CLEVR_v1.0/processed_data/question_answer_dict.pkl', 'rb') as f:
-        word_to_idx, idx_to_word, answer_word_to_idx, answer_idx_to_word = pickle.load(f)
-
-        idx_to_word[0] = '_'
-        qst_vocab_size = len(idx_to_word)
-        idx_to_word[qst_vocab_size] = 'START'
-        idx_to_word[qst_vocab_size+1] = 'END'
-
-        word_to_idx['_'] = 0
-        word_to_idx['START'] = qst_vocab_size
-        word_to_idx['END'] = qst_vocab_size + 1
 
 
-        qst_vocab_size = len(word_to_idx)
-        ans_vocab_size = len(answer_word_to_idx)
+    if data == 'CLEVR':
+        import model
+        import inputs
+
+        with open('data/CLEVR_v1.0/processed_data/question_answer_dict.pkl', 'rb') as f:
+            word_to_idx, idx_to_word, answer_word_to_idx, answer_idx_to_word = pickle.load(f)
+
+            idx_to_word[0] = '_'
+            qst_vocab_size = len(idx_to_word)
+            idx_to_word[qst_vocab_size] = 'START'
+            idx_to_word[qst_vocab_size+1] = 'END'
+
+            word_to_idx['_'] = 0
+            word_to_idx['START'] = qst_vocab_size
+            word_to_idx['END'] = qst_vocab_size + 1
 
 
-        print('START AND END TOKEN ADDED TO QUESTION VOCAB')
+            qst_vocab_size = len(word_to_idx)
+            ans_vocab_size = len(answer_word_to_idx)
 
-    with tf.variable_scope('Model', reuse=None):
 
-        model = model.RelationalNetwork(next_batch, qst_vocab_size, ans_vocab_size,
-                                        word_embedding_size, g_theta_layers,
-                                        f_phi_layers,
-                                        img_encoding_layers_parsed,
-                                        rnn_hidden_dim)
+            print('START AND END TOKEN ADDED TO QUESTION VOCAB')
 
+        next_batch, trn_init_op, test_init_op = inputs.inputs(batch_size)
+
+        with tf.variable_scope('Model', reuse=None):
+
+            model = model.RelationalNetwork(next_batch, qst_vocab_size, ans_vocab_size,
+                                            word_embedding_size, g_theta_layers,
+                                            f_phi_layers,
+                                            img_encoding_layers_parsed,
+                                            rnn_hidden_dim, batch_size=batch_size)
+
+        save_interval = 3000
+
+    elif data == 's_CLEVR':
+        import model_sort_of_clevr
+        import sort_of_celvr_inputs as inputs
+        import vqa_util
+        idx_to_qst_type = vqa_util.question_type_dict
+        idx_to_ans = vqa_util.answer_dict
+        idx_to_color = vqa_util.color_dict
+
+        qst_color_vocab = len(idx_to_color)
+        qst_type_vocab_size = len(idx_to_qst_type)
+        ans_vocab_size = len(idx_to_ans)
+
+        next_batch, trn_init_op, test_init_op = inputs.inputs(batch_size)
+
+        model = model_sort_of_clevr.RelationalNetwork(next_batch, qst_color_vocab,
+                                                      qst_type_vocab_size,
+                                                      ans_vocab_size,
+                                                      word_embedding_size, g_theta_layers,
+                                                      f_phi_layers,
+                                                      img_encoding_layers_parsed,
+                                                      batch_size=batch_size)
+        save_interval = 1000
 
 
     config = tf.ConfigProto()
@@ -114,24 +147,24 @@ with tf.Graph().as_default():
             latest_model = tf.train.latest_checkpoint(model_dir)
             print('restored model from ', latest_model)
             start_epoch_num = int(re.search('model.ckpt-(\d+)', latest_model).group(1))
+            sess.run(tf.assign(model.epoch, start_epoch_num))
             saver.restore(sess, latest_model)
         else:
-            start_epoch_num = 0
             sess.run(tf.global_variables_initializer())
+            epoch_num = sess.run(model.epoch)
 
-        for i in range(start_epoch_num, num_epochs):
-            print('epoch num', i)
+        for _ in range(num_epochs):
+            print('epoch num', epoch_num, 'batch iteration', global_step)
             prev = time.time()
             sess.run(trn_init_op)
             sess.run(tf.local_variables_initializer())
             try:
 
-
                 while True:
 
                     # question_embed, qst_len, rnn_outputs, last_states = sess.run(model.get)
 
-                    if global_step % 2137 == 0:
+                    if global_step % save_interval * 10== 0:
                         img, pred, ans, qst = sess.run([model.img, model.prediction,
                                                     model.ans, model.qst],
                                                        feed_dict={model.is_training:True})
@@ -140,10 +173,16 @@ with tf.Graph().as_default():
                         ans = ans[:10]
                         qst = qst[:10]
 
-                        ans = [answer_idx_to_word[x] for x in np.squeeze(ans)]
-                        qst = [' '.join([idx_to_word[x] for x in row]) for row in qst]
-                        pred = [answer_idx_to_word[x] for x in np.squeeze(pred)]
+                        if data == 'CLEVR':
 
+                            ans = [answer_idx_to_word[x] for x in np.squeeze(ans)]
+                            qst = [' '.join([idx_to_word[x] for x in row]) for row in qst]
+                            pred = [answer_idx_to_word[x] for x in np.squeeze(pred)]
+                        elif data =='s_CLEVR':
+                            ans = [idx_to_ans[x] for x in ans]
+                            qst = ['{}_{}'.format(idx_to_color[x], idx_to_qst_type[y])
+                                   for x, y in qst]
+                            pred = [idx_to_ans[x] for x in pred]
 
                         summary = sess.run(model.summary_additional, {model.img_pl:img,
                                                             model.ans_word: ans,
@@ -155,7 +194,7 @@ with tf.Graph().as_default():
                         # encoded_img_qst_pair, encoded_img_qst_pair_tp, pair_output_sum \
                         #     = sess.run(model.get, {model.is_training:True})
                     if run_meta:
-                        if global_step % 1000 == 0:
+                        if global_step % save_interval == 0:
                             print('run_meta')
                             run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
                             run_metadata = tf.RunMetadata()
@@ -163,8 +202,7 @@ with tf.Graph().as_default():
                             _, global_step, trn_loss_summary = sess.run([model.train_op,
                                                                          model.global_step,
                                                                          model.trn_loss_summary],
-                                                                        {
-                                                                            model.is_training: True},
+                                                                        {model.is_training: True},
                                                                         options=run_options,
                                                                         run_metadata=run_metadata)
                             summary_writer.add_summary(trn_loss_summary, i)
@@ -172,25 +210,29 @@ with tf.Graph().as_default():
                                 global_step),
                                                             global_step)
 
-                    if global_step % 2000 == 0:
+
+
+                    if global_step % save_interval == 0:
                         _, global_step, trn_loss_summary = sess.run([model.train_op,
                                                           model.global_step,
                                                    model.trn_loss_summary],
                                                                     {model.is_training:True})
-                        summary_writer.add_summary(trn_loss_summary, i)
+
+                        summary_writer.add_summary(trn_loss_summary, global_step)
                     else:
                         _, global_step = sess.run([model.train_op, model.global_step],
                                                                     {model.is_training:True})
 
 
             except tf.errors.OutOfRangeError:
-                print('out of range', 'iter', global_step)
+                sess.run(model.increment_epoch_op)
+                epoch_num = sess.run(model.epoch)
+                print('out of range', 'epoch', epoch_num, 'iter', global_step)
                 now = time.time()
                 summary_value, trn_acc = sess.run([model.summary_trn,
                                                    model.accuracy],
-                                                                    {
-                                                                        model.is_training:False})
-                summary_writer.add_summary(summary_value, global_step=i)
+                                                                    {model.is_training:False})
+                summary_writer.add_summary(summary_value, global_step=epoch_num)
 
                 sess.run(test_init_op)
                 sess.run(tf.local_variables_initializer()) # metrics value init to 0
@@ -199,13 +241,13 @@ with tf.Graph().as_default():
                     print('test_start')
                     tmp_step = 0
                     while True:
-                        if tmp_step % 1000 == 0:
+                        if tmp_step % save_interval == 0:
                             _, test_loss_summary = sess.run([model.update_ops,
                                                  model.test_loss_summary],
                                                                     {
                                                                         model.is_training:False})
                             print('accuracy batch test', sess.run(model.accuracy))
-                            summary_writer.add_summary(test_loss_summary, global_step=i)
+                            summary_writer.add_summary(test_loss_summary, global_step=epoch_num)
 
                         else:
                             sess.run(model.update_ops, {model.is_training:False})
@@ -217,7 +259,7 @@ with tf.Graph().as_default():
                                                        model.accuracy],
                                                                     {
                                                                         model.is_training:False})
-                    summary_writer.add_summary(summary_value, global_step=i)
+                    summary_writer.add_summary(summary_value, global_step=epoch_num)
 
 
 
@@ -235,7 +277,7 @@ with tf.Graph().as_default():
 
                 # print([idx_to_value['answer'][x] for x in trn_pred])
                 # print([idx_to_value['answer'][x] for x in test_pred])
-                saver.save(sess, model_dir + '/model.ckpt', global_step=i)
+                saver.save(sess, model_dir + '/model.ckpt', global_step=epoch_num)
 
 
         terminal_output.close()

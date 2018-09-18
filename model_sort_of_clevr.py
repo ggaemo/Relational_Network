@@ -4,14 +4,13 @@ import ops
 
 class RelationalNetwork():
 
-    def __init__(self, inputs, qst_vocab_size, ans_vocab_size,
+    def __init__(self, inputs, qst_color_vocab, qst_type_vocab_size, ans_vocab_size,
                  word_embedding_size, g_theta_layers, f_phi_layers, img_encoding_layers,
-                 rnn_hidden_dim, **kwargs):
+                 **kwargs):
 
         self.g_theta_layers = g_theta_layers
         self.f_phi_layers = f_phi_layers
         self.encoding_layers = img_encoding_layers
-        self.rnn_hidden_dim = rnn_hidden_dim
         self.is_training = tf.placeholder(tf.bool, shape=None)
 
         self.qst_word = tf.placeholder(tf.string, shape=[None])
@@ -64,8 +63,8 @@ class RelationalNetwork():
                                            tf.nn.tanh, self.is_training)
             return input
 
-        def get_embedding_variable(inputs, vocab_size, embedding_size):
-            with tf.variable_scope('embedding_layer'):
+        def get_embedding_variable(inputs, vocab_size, embedding_size, name):
+            with tf.variable_scope('embedding_layer/{}'.format(name)):
                 variable_embeddings = tf.get_variable(name='variable_embeddings',
                                                       shape=[vocab_size, embedding_size],
                                                       initializer=tf.random_uniform_initializer(-1, 1))
@@ -87,18 +86,17 @@ class RelationalNetwork():
 
         img = inputs['img']
 
-        self.img = img
-
-        img.set_shape([None, 128, 128, 3])
-
-        print('img set shape at 128 128 3')
         ans = inputs['ans']
+
+        # ans = tf.squeeze(ans)
         qst = inputs['qst']
 
+        self.img = img
         self.ans = ans
         self.qst = qst
 
-        qst_len = tf.squeeze(inputs['qst_len'], axis=1)
+        qst_color, qst_type = tf.split(qst, 2, axis=1)
+
 
         _, height, width, num_input_channel = img.get_shape().as_list()
         batch_size = tf.shape(img)[0]
@@ -110,39 +108,13 @@ class RelationalNetwork():
         # num_input_channel = tf.shape(img)[-1]
 
         with tf.variable_scope('question_embedding'):
-            question_embed = get_embedding_variable(qst, qst_vocab_size,
-                                                    word_embedding_size)
+            qst_color_embed = get_embedding_variable(qst_color, qst_color_vocab,
+                                                    word_embedding_size, 'question_color')
+            qst_type_embed = get_embedding_variable(qst_type, qst_type_vocab_size,
+                                                     word_embedding_size, 'question_type')
 
+            encoded_qst = tf.concat([qst_color_embed, qst_type_embed], axis=1)
 
-
-            rnn_cell = tf.contrib.rnn.GRUCell(num_units=self.rnn_hidden_dim)
-            rnn_outputs, last_states = tf.nn.dynamic_rnn(cell=rnn_cell,
-                                                         inputs=question_embed,
-                                                         dtype=tf.float32,
-                                                         sequence_length=qst_len,
-                                                         parallel_iterations=71
-                                                     )
-            # GRU
-            encoded_qst = last_states
-
-            self.get = [question_embed, qst_len, rnn_outputs, last_states]
-            #LSTM
-            # c, h = last_states
-            # encoded_qst = h
-
-            #if parallel_iteration is given 71, it overcomes some strange error
-            # tensorflow dynamic rnn puts out when the length is 32
-
-            '''
-            if you want to use rnn_outputs, use the below  
-            '''
-            # qst_len_index_by_batch = tf.stack(
-            #     [tf.range(batch_size,dtype=tf.int32),
-            #      qst_len - 1], axis=1) #This yields the last index of each sequence ( -1 is
-            # # needed becuase sequence index starts with 0
-            #
-            # encoded_qst = tf.gather_nd(rnn_outputs, qst_len_index_by_batch)
-            # # tf.gather_nd, indices defines slices into the first N dimensions of params, where N = indices.shape[-1].
 
         with tf.variable_scope('image_embedding'):
             encoded_img = build_conv(img, self.encoding_layers)
@@ -195,7 +167,7 @@ class RelationalNetwork():
 
         with tf.variable_scope('img_qst_concat'):
             encoded_qst_expand = tf.reshape(encoded_qst,
-                                            [batch_size, rnn_hidden_dim, 1, 1])
+                                            [batch_size, word_embedding_size * 2, 1, 1])
             # [b, 1,
             #  rnn_hidden_dim]
             encoded_qst_tiled = tf.tile(encoded_qst_expand, [1, 1, num_obj, num_obj])
@@ -249,7 +221,6 @@ class RelationalNetwork():
 
         with tf.variable_scope('loss'):
 
-            ans = tf.squeeze(ans, 1)
             xent_loss_raw =tf.nn.sparse_softmax_cross_entropy_with_logits(
                 labels=ans, logits=self.output)
             xent_loss_raw = tf.check_numerics(xent_loss_raw, 'nan value found '

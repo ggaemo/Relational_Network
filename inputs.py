@@ -262,7 +262,33 @@ def test():
                 else:
                     break
 
+
+def test_random():
+    import matplotlib.pyplot as plt
+    with tf.Session() as sess:
+        batch_size = 5
+        next_batch, trn_init_op, test_init_op = inputs(batch_size)
+
+        with open('data/CLEVR_v1.0/processed_data/question_answer_dict.pkl', 'rb') as f:
+            convert_dict = pickle.load(f)
+        word_to_idx, idx_to_word, answer_word_to_idx, answer_idx_to_word = convert_dict
+
+        cnt = 0
+        while True:
+            sess.run(trn_init_op)
+
+            a = sess.run(next_batch)
+
+            idx_to_word[95] = 'START'
+            idx_to_word[96] = 'END'
+            idx_to_word[0] = '_'
+            print('train')
+            print(cnt)
+            for i in range(batch_size):
+                print([idx_to_word[x] for x in a['qst'][i]])
+            cnt += 1
+
 if __name__ =='__main__':
-    test()
+    test_random()
 
 
