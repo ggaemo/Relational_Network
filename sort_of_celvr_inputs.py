@@ -3,13 +3,11 @@ import h5py
 import os
 import numpy as np
 import vqa_util
+import pickle
 
 def make_tf_record_file(data_type):
 
-    def make_example(img, qst, answer):
-
-        def _int64_feature(value):
-            return tf.train.Feature(int64_list=tf.train.Int64List(value=value))
+    def make_example(img, qst_color, qst_type, qst_subtype, answer):
 
         def _int64_feature(value):
             return tf.train.Feature(int64_list=tf.train.Int64List(value=value))
@@ -19,7 +17,13 @@ def make_tf_record_file(data_type):
 
         features = tf.train.Features(feature={'img_raw':_bytes_feature([img]),
                                               'answer': _int64_feature([answer]),
-                                              'question': _int64_feature(qst)})
+                                              'question_color': _int64_feature(
+                                                  [qst_color]),
+                                              'question_type': _int64_feature(
+                                                  [qst_type]),
+                                              'question_subtype': _int64_feature(
+                                                  [qst_subtype]),
+                                              })
 
         example = tf.train.Example(features = features)
 
@@ -34,16 +38,53 @@ def make_tf_record_file(data_type):
         writer = tf.python_io.TFRecordWriter('data/Sort-of-CLEVR/seq_tfrecord_data/{'
                                              '0}/{0}.tfrecord'.format(data_type))
 
-        data_path = 'data/Sort-of-CLEVR/raw_data/{}/data.hy'.format(data_type)
-        data = h5py.File(data_path, 'r')
-        for key, val in data.items():
-            question = np.where(val['question'].value)[0]
-            question[1] = question[1] - vqa_util.NUM_COLOR
-            image = val['image'].value.tostring()
-            answer = np.where(val['answer'].value)[0]
-            ex = make_example(image, question, answer)
-            writer.write(ex.SerializeToString())
+        dirs = 'data/Sort-of-CLEVR/raw_data'
+        filename = os.path.join(dirs, 'sort-of-clevr.pickle')
+        with  open(filename, 'rb') as f:
+            trn, test = pickle.load(f)
+            if data_type == 'train':
+                data = trn
+            elif data_type == 'val':
+                data = test
+
+
+        print('datasets saved at {}'.format(filename))
+        for val in data:
+            image, relation_qa, nonrelation_qa = val
+            image = image.astype(np.uint8)
+            image = image.tostring()
+            relation_q, relation_a = relation_qa
+            nonrelation_q, nonrelation_a = nonrelation_qa
+            ##6 for one-hot vector of color, 2 for question type, 3 for question subtype
+            relation_q_list = [np.where(x)[0] for x in relation_q]
+            nonrelation_q_list = [np.where(x)[0] for x in nonrelation_q]
+
+            q_list = relation_q_list + nonrelation_q_list
+            q_list = [(x[0], x[1] - 6, x[2] - 8) for x in q_list]
+
+            q_color_list = [x[0] for x in q_list]
+            q_type_list = [x[1] for x in q_list]
+            q_subtype_list = [x[2] for x in q_list]
+            a_list = relation_a + nonrelation_a
+
+            for q_color, q_type, q_subtype, a in zip(q_color_list, q_type_list ,
+                                                     q_subtype_list, a_list):
+                ex = make_example(image, q_color, q_type, q_subtype, a)
+                writer.write(ex.SerializeToString())
         writer.close()
+
+
+
+
+        # data = h5py.File(data_path, 'r')
+        # for key, val in data.items():
+        #     question = np.where(val['question'].value)[0]
+        #     question[1] = question[1] - vqa_util.NUM_COLOR
+        #     image = val['image'].value.tostring()
+        #     answer = np.where(val['answer'].value)[0]
+        #     ex = make_example(image, question, answer)
+        #     writer.write(ex.SerializeToString())
+        # writer.close()
         print('tfrecord {} made'.format(data_type))
 
     else:
@@ -58,22 +99,27 @@ def inputs(batch_size, num_parallel_calls=10):
             serialized_example,
             features={'img_raw': tf.FixedLenFeature([], tf.string),
                       'answer': tf.FixedLenFeature([], tf.int64),
-                      'question' : tf.FixedLenFeature([2], tf.int64)})
+                      'question_color' : tf.FixedLenFeature([], tf.int64),
+                      'question_type': tf.FixedLenFeature([], tf.int64),
+                      'question_subtype': tf.FixedLenFeature([], tf.int64),
+        })
 
         image = tf.decode_raw(parsed['img_raw'], tf.uint8)
-        image = tf.reshape(image, [128, 128, 3])
-        image = tf.cast(image, tf.float32)
+        image = tf.reshape(image, [75, 75, 3])
 
         # image = tf.image.resize_images(image, (128, 128), method=1) # nearest neighbor
 
-        # image = tf.cast(image, tf.float32)
-        # image = (image - 127.5) / 127.5
+        image = tf.cast(image, tf.float32)
+        image = (image - 127.5) / 127.5
 
-        # question = tf.cast(sequence_parsed['question'], tf.int32)
-        question = parsed['question']
+        question_color = tf.cast(parsed['question_color'], tf.int32)
+        question_type = tf.cast(parsed['question_type'], tf.int32)
+        question_subtype = tf.cast(parsed['question_subtype'], tf.int32)
+
         answer = tf.cast(parsed['answer'], tf.int32)
 
-        return {'img': image, 'qst': question, 'ans': answer}
+        return {'img': image, 'qst_c': question_color, 'qst_type': question_type,
+                'qst_subtype': question_subtype, 'ans': answer}
 
     def make_dataset(file_list):
         dataset = tf.data.TFRecordDataset(file_list)
@@ -114,7 +160,7 @@ def test():
     import matplotlib.pyplot as plt
 
     with tf.Session() as sess:
-        batch_size = 10
+        batch_size = 32
         next_batch, trn_init_op, test_init_op = inputs(batch_size)
 
         # with open('data/CLEVR_v1.0/processed_data/question_answer_dict.pkl', 'rb') as f:

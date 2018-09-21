@@ -138,7 +138,8 @@ def check_path(path):
 def main():
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('--dir_name', type=str, default='data/Sort-of-CLEVR/raw_data')
+    parser.add_argument('--dir_name', type=str, default='data/Sort-of-CLEVR/raw_data/{'
+                                                        '}_{}'.format(NUM_SHAPE, N_GRID))
     parser.add_argument('--dataset_size', type=int, default=10000)
     parser.add_argument('--img_size', type=int, default=128)
     args = parser.parse_args()

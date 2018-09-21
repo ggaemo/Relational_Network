@@ -16,13 +16,10 @@ class RelationalNetwork():
         self.qst_word = tf.placeholder(tf.string, shape=[None])
         self.ans_word = tf.placeholder(tf.string, shape=[None])
         self.pred_word = tf.placeholder(tf.string, shape=[None])
-        self.img_pl = tf.placeholder(tf.float32, shape=[None, 75, 75, 3])
+        self.img_pl = tf.placeholder(tf.float32, shape=[None, 128, 128, 3])
 
         if 'batch_size' in kwargs:
             self.batch_size_for_learning_rate = kwargs['batch_size']
-
-        if 'num_question' in kwargs:
-            self.num_question = kwargs['num_question']
 
         def build_mlp(inputs, layers, drop_out=None):
 
@@ -76,44 +73,15 @@ class RelationalNetwork():
                                                         name='variable_lookup')
             return embed_variable
 
-        def build_coord_tensor(batch_size, height):
-            # coord = tf.linspace(0.0, height - 1, height)
-            coord = tf.linspace(-height/2, height/2, height)
-            x = tf.tile(tf.expand_dims(coord, 0), [height, 1])
-            y = tf.tile(tf.expand_dims(coord, 1), [1, height])
-
-            coord_xy = tf.stack((x, y), axis=2)
-            coord_xy_batch = tf.tile(tf.expand_dims(coord_xy, 0), [batch_size, 1, 1, 1])
-            coord_xy_batch = tf.cast(coord_xy_batch, tf.float32)
-            print('coord_xy shape', coord_xy_batch.shape)
-            return coord_xy_batch
-
-
-
         img = inputs['img']
         ans = inputs['ans']
-        qst_color = inputs['qst_c']
-        qst_type = inputs['qst_type']
-        qst_subtype = inputs['qst_subtype']
-
-        self.qst_color = qst_color
-        self.qst_type = qst_type
-        self.qst_subtype = qst_subtype
-
-
-
-        qst_subtype_len = 3
-
-        qst_type = qst_type * qst_subtype_len  + qst_subtype
+        qst = inputs['qst']
 
         self.img = img
         self.ans = ans
-        self.qst = tf.concat([tf.expand_dims(qst_color,1), tf.expand_dims(qst_type, 1)],
-                             axis=1)
+        self.qst = qst
 
-
-
-        # qst_color, qst_type = tf.split(qst, 2, axis=1)
+        qst_color, qst_type = tf.split(qst, 2, axis=1)
 
 
         _, height, width, num_input_channel = img.get_shape().as_list()
@@ -137,82 +105,21 @@ class RelationalNetwork():
         with tf.variable_scope('image_embedding'):
             encoded_img = build_conv(img, self.encoding_layers)
 
-
-            encode_num_channels = self.encoding_layers[-1][0]
-            reduced_height = tf.cast(tf.ceil(height / (2 ** len(self.encoding_layers))),
-                                     tf.int32)
-            num_obj = reduced_height ** 2
-
-            coord_tensor = build_coord_tensor(batch_size, reduced_height)
-
-            encoded_img_coord = tf.concat([encoded_img, coord_tensor], axis=3)
-
-            # print('without coord')
-            #
-            # encoded_img_coord = tf.concat([encoded_img, tf.zeros((batch_size,
-            #                                                      reduced_height,
-            #                                                      reduced_height,
-            #                                                      2))], axis=3)
-
-            # self.get = [coord_tensor, encoded_img_coord]
-
-        # with tf.variable_scope('decoder'):
-        #     self.decoding_layers = self.encoding_layers
-        #     self.decoding_layers[-1][0] = 3 # last channel to have 3 channels
-        #     recon = build_conv_transpose(encoded_img, self.decoding_layers)
-
-        with tf.variable_scope('image_object_pairing'):
-            print('encoded img_coord', encoded_img_coord.shape)
-            encoded_img_flatten = tf.reshape(encoded_img_coord, [batch_size, num_obj,
-                                                           encode_num_channels + 2])
-            #coord num channel 2
-
-            print(encoded_img_flatten.shape)
-            # [b, d*d, # feature]
-
-            encoded_img_flatten = tf.transpose(encoded_img_flatten, (0, 2, 1)) # for lower triangle
-            # computation # [b, # feature , d*d]
-            encoded_img_flatten_1 = tf.expand_dims(encoded_img_flatten, axis = 3)
-            encoded_img_flatten_1 = tf.tile(encoded_img_flatten_1, [1, 1, 1, num_obj])
-
-
-            encoded_img_flatten_1 = tf.matrix_band_part(encoded_img_flatten_1, -1, 0) #lower#
-            #  triangle
-
-            encoded_img_flatten_2 = tf.expand_dims(encoded_img_flatten, axis=2)
-            encoded_img_flatten_2 = tf.tile(encoded_img_flatten_2, [1, 1, num_obj, 1])
-
-
-            encoded_img_flatten_2 = tf.matrix_band_part(encoded_img_flatten_2, -1, 0)  # lower triangle
-
-
-            encoded_img_pair = tf.concat([encoded_img_flatten_1, encoded_img_flatten_2],
-                                             axis=1)
-            # [b, # channel, d*d, d*d]
+            reduced_height = int(height / (2 ** len(self.encoding_layers)))
 
 
         with tf.variable_scope('img_qst_concat'):
             encoded_qst_expand = tf.reshape(encoded_qst,
-                                            [batch_size, word_embedding_size * 2, 1, 1])
-            # [b, 1,
-            #  rnn_hidden_dim]
-            encoded_qst_tiled = tf.tile(encoded_qst_expand, [1, 1, num_obj, num_obj])
-            encoded_qst_tiled = tf.matrix_band_part(encoded_qst_tiled, -1,
-                                                    0, name='lower_matrix')  # lower
-            # triangle
+                                            [batch_size, 1, 1, word_embedding_size * 2])
+
+            encoded_qst_tiled = tf.tile(encoded_qst_expand, [1, reduced_height,
+                                                             reduced_height, 1])
 
             print(encoded_qst_tiled.shape)
 
-            encoded_img_qst_pair = tf.concat([encoded_img_pair, encoded_qst_tiled], axis=1)
+            encoded_img_qst = tf.concat([encoded_img, encoded_qst_tiled], axis=3)
 
-            # [b, # channel + #rnn dim, d*d, d*d]
-
-        # tf.add_to_collection('assert', tf.assert_equal(encoded_img_qst_pair, tf.matrix_band_part(
-        #     encoded_img_qst_pair,-1, 0), message='qst lower'))
-
-        encoded_img_qst_pair = tf.transpose(encoded_img_qst_pair, [0, 2, 3, 1])
-
-        # [b, d*d, d*d,  # channel + # rnn dim]
+        # [b, d, d,  # channel + # embedding dim]
 
         #TODO encoded_img_pst_pair includes self pairs (a_i, a_i) as well as (a_i, a_j)
         #TODO check if lower triangle operation is necessary for computational efficiency
@@ -221,12 +128,9 @@ class RelationalNetwork():
         with tf.variable_scope('g_theta'):
             print('build g_theta')
 
-            pair_output = build_mlp(encoded_img_qst_pair, self.g_theta_layers)
-            mask = tf.reshape(tf.matrix_band_part(tf.ones([num_obj, num_obj]), -1,
-                                                      0), [1, num_obj, num_obj, 1])
-            pair_output_lower = tf.multiply(pair_output, mask)
-            # pair_output_lower = pair_output
-            pair_output_sum = tf.reduce_sum(pair_output_lower, (1, 2))
+            output = build_mlp(encoded_img_qst, self.g_theta_layers)
+
+            output_sum = tf.reduce_sum(output, (1, 2))
 
             # self.a = tf.assert_equal(pair_output_lower, pair_output,
             #                                                message='lower_pair')
@@ -235,10 +139,8 @@ class RelationalNetwork():
 
         with tf.variable_scope('f_phi'):
             print('build f_phi')
-            self.f_phi = build_mlp(pair_output_sum, self.f_phi_layers)
-            print('no drop out')
-            #len(self.f_phi_layers) - 1)
-
+            self.f_phi = build_mlp(output_sum, self.f_phi_layers,
+                                   len(self.f_phi_layers) - 1)
 
             print('dropout at last layer')
 
@@ -296,69 +198,27 @@ class RelationalNetwork():
             self.accuracy, _ = tf.metrics.accuracy(ans, self.prediction,
                                                  updates_collections=tf.GraphKeys.UPDATE_OPS)
 
-
             summary_trn = list()
             summary_trn.append(tf.summary.scalar('trn_accuracy', self.accuracy))
             summary_trn.append(tf.summary.scalar('learning_rate', self.learning_rate))
 
 
+            trn_loss_summary = [tf.summary.scalar('trn_recon_loss', self.recon_loss),
+                                     tf.summary.scalar('trn_xent_loss', self.xent_loss)]
+
+            self.trn_loss_summary = tf.summary.merge(trn_loss_summary)
+
+            self.summary_trn = tf.summary.merge(summary_trn)
 
             summary_test = list()
             summary_test.append(tf.summary.scalar('test_accuracy', self.accuracy))
 
-
-
-            question_type_dict = {
-                0: 'shape',
-                1: 'horizontal',
-                2: 'vertical',
-                3: 'closest',
-                4: 'furtherest',
-                5: 'count'
-            }
-
-            for key, val in question_type_dict.items():
-                acc_type_mask = tf.equal(qst_type, key)
-                ans_tmp = tf.boolean_mask(ans, acc_type_mask)
-                pred_tmp = tf.boolean_mask(self.prediction, acc_type_mask)
-                acc_tmp, _ = tf.metrics.accuracy(ans_tmp, pred_tmp,
-                                     updates_collections=tf.GraphKeys.UPDATE_OPS)
-                summary_trn.append(tf.summary.scalar('trn_{}_acc'.format(val), acc_tmp))
-                summary_test.append(tf.summary.scalar('test_{}_acc'.format(val), acc_tmp))
-
-
-            nonrelational_mask = tf.less_equal(qst_type, 2)
-            relational_mask = tf.greater_equal(qst_type, 3)
-
-
-            for rel_nonrel, mask in zip(['nonrel', 'rel'], [nonrelational_mask,
-                                                       relational_mask]):
-                ans_tmp = tf.boolean_mask(ans, mask)
-                pred_tmp = tf.boolean_mask(self.prediction, mask)
-                acc_tmp, _ = tf.metrics.accuracy(ans_tmp, pred_tmp,
-                                                 updates_collections=tf.GraphKeys.UPDATE_OPS)
-                summary_trn.append(tf.summary.scalar('trn_{}_acc'.format(rel_nonrel), acc_tmp))
-                summary_test.append(tf.summary.scalar('test_{}_acc'.format(rel_nonrel),
-                                                      acc_tmp))
-
-            self.summary_trn = tf.summary.merge(summary_trn)
-
-            self.summary_test = tf.summary.merge(summary_test)
-
-            '''
-            summaries that consumes batches
-            '''
-            trn_loss_summary = [tf.summary.scalar('trn_recon_loss', self.recon_loss),
-                                tf.summary.scalar('trn_xent_loss', self.xent_loss)]
-
             test_loss_summary = [tf.summary.scalar('test_recon_loss', self.recon_loss),
-                                 tf.summary.scalar('test_xent_loss', self.xent_loss)]
-
-            self.trn_loss_summary = tf.summary.merge(trn_loss_summary)
+                                tf.summary.scalar('test_xent_loss', self.xent_loss)]
 
             self.test_loss_summary = tf.summary.merge(test_loss_summary)
 
-
+            self.summary_test = tf.summary.merge(summary_test)
 
         with tf.variable_scope('img_qst_summary'):
             additional = list()

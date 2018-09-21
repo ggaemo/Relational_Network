@@ -14,10 +14,10 @@ COLOR = [
     # add more colors here if needed
 ]
 
-N_GRID = 4
+N_GRID = 5
 NUM_COLOR = len(COLOR)
 # the number of objects presented in each image
-NUM_SHAPE = 4
+NUM_SHAPE = 6
 # avoid a color shared by more than one objects
 NUM_SHAPE = min(NUM_SHAPE, NUM_COLOR)
 NUM_Q = 5
