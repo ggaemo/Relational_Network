@@ -171,8 +171,8 @@ with tf.Graph().as_default():
         if restore:
             latest_model = tf.train.latest_checkpoint(model_dir)
             print('restored model from ', latest_model)
-            start_epoch_num = int(re.search('model.ckpt-(\d+)', latest_model).group(1))
-            sess.run(tf.assign(model.epoch, start_epoch_num))
+            epoch_num = int(re.search('model.ckpt-(\d+)', latest_model).group(1))
+            sess.run(tf.assign(model.epoch, epoch_num))
             saver.restore(sess, latest_model)
         else:
             sess.run(tf.global_variables_initializer())
@@ -186,6 +186,10 @@ with tf.Graph().as_default():
             try:
 
                 while True:
+
+                    if restore:
+                        while True:
+                            sess.run(model.ans, feed_dict={model.is_training:True})
 
                     # question_embed, qst_len, rnn_outputs, last_states = sess.run(model.get)
 
@@ -249,6 +253,8 @@ with tf.Graph().as_default():
                         _, global_step = sess.run([model.train_op, model.global_step],
                                                                     {model.is_training:True})
 
+
+
             except tf.errors.OutOfRangeError:
                 sess.run(model.increment_epoch_op)
                 epoch_num = sess.run(model.epoch)
@@ -265,7 +271,6 @@ with tf.Graph().as_default():
                 try:
                     print('test_start')
                     tmp_step = 0
-
 
                     img, pred, ans, qst = sess.run([model.img, model.prediction,
                                                 model.ans, model.qst],
@@ -310,15 +315,15 @@ with tf.Graph().as_default():
 
                     while True:
                         if tmp_step % save_interval == 0:
-                            _, test_loss_summary = sess.run([model.update_ops,
+                            _, test_loss_summary = sess.run([model.summary_update_ops,
                                                  model.test_loss_summary],
                                                                     {
                                                                         model.is_training:False})
                             print('accuracy batch test', sess.run(model.accuracy))
                             summary_writer.add_summary(test_loss_summary, global_step=epoch_num)
-
                         else:
-                            sess.run(model.update_ops, {model.is_training:False})
+                            sess.run(model.summary_update_ops, {model.is_training:False})
+
                         tmp_step += 1
 
                 except tf.errors.OutOfRangeError:

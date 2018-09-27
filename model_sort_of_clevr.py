@@ -298,39 +298,33 @@ class RelationalNetwork():
         with tf.variable_scope('summary'):
             self.prediction = tf.argmax(self.output, axis=1)
             self.accuracy, _ = tf.metrics.accuracy(ans, self.prediction,
-                                                 updates_collections=tf.GraphKeys.UPDATE_OPS)
-
+                                                 updates_collections='summary_update')
 
             summary_trn = list()
             summary_trn.append(tf.summary.scalar('trn_accuracy', self.accuracy))
             summary_trn.append(tf.summary.scalar('learning_rate', self.learning_rate))
 
-
-
             summary_test = list()
             summary_test.append(tf.summary.scalar('test_accuracy', self.accuracy))
-
 
             for key, val in self.question_type_dict.items():
                 acc_type_mask = tf.equal(qst_type, key)
                 ans_tmp = tf.boolean_mask(ans, acc_type_mask)
                 pred_tmp = tf.boolean_mask(self.prediction, acc_type_mask)
                 acc_tmp, _ = tf.metrics.accuracy(ans_tmp, pred_tmp,
-                                     updates_collections=tf.GraphKeys.UPDATE_OPS)
+                                     updates_collections='summary_update')
                 summary_trn.append(tf.summary.scalar('trn_{}_acc'.format(val), acc_tmp))
                 summary_test.append(tf.summary.scalar('test_{}_acc'.format(val), acc_tmp))
 
-
             nonrelational_mask = tf.less_equal(qst_type, 2)
             relational_mask = tf.greater_equal(qst_type, 3)
-
 
             for rel_nonrel, mask in zip(['nonrel', 'rel'], [nonrelational_mask,
                                                        relational_mask]):
                 ans_tmp = tf.boolean_mask(ans, mask)
                 pred_tmp = tf.boolean_mask(self.prediction, mask)
                 acc_tmp, _ = tf.metrics.accuracy(ans_tmp, pred_tmp,
-                                                 updates_collections=tf.GraphKeys.UPDATE_OPS)
+                                                 updates_collections='summary_update')
                 summary_trn.append(tf.summary.scalar('trn_{}_acc'.format(rel_nonrel), acc_tmp))
                 summary_test.append(tf.summary.scalar('test_{}_acc'.format(rel_nonrel),
                                                       acc_tmp))
@@ -365,10 +359,10 @@ class RelationalNetwork():
         with tf.variable_scope('train'):
 
             self.update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+            self.summary_update_ops = tf.get_collection('summary_update')
             self.assert_ops = tf.get_collection('assert')
 
 
-
-            with tf.control_dependencies(self.update_ops + self.assert_ops):
+            with tf.control_dependencies(self.update_ops + self.assert_ops + self.summary_update_ops):
                 self.train_op = tf.train.AdamOptimizer(self.learning_rate).minimize(
                     self.loss,global_step=self.global_step)
