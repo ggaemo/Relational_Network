@@ -17,45 +17,55 @@ nb_questions = 10
 dirs = 'data/Sort-of-CLEVR/raw_data'
 
 colors = [
-    (0, 0, 255),  ##r
+    (255, 0, 0),  ##r
     (0, 255, 0),  ##g
-    (255, 0, 0),  ##b
-    (0, 156, 255),  ##o
-    (128, 128, 128),  ##k
-    (0, 255, 255)  ##y
+    (0, 0, 255),  ##b
+    (255, 156, 0),  ##orange
+    (148, 0, 211),  ##darkviolet
+    (255, 255, 0)  ##y
 ]
 
 
 
 color_dict = {
-        0: 'red',
-        1: 'green',
-        2: 'blue',
-        3: 'orange',
-        4: 'gray',
-        5: 'yellow',
+        0: 'r',
+        1: 'g',
+        2: 'b',
+        3: 'o',
+        4: 'v',
+        5: 'y',
     }
 
+# question_type_dict = {
+#             0: 'shape',
+#             1: 'horizontal position (left yes)',
+#             2: 'vertical position(up yes)',
+#             3: 'closest to',
+#             4: 'furtherest from',
+#             5: 'count'
+#         }
+
 question_type_dict = {
-            0: 'shape',
-            1: 'horizontal position (right yes)',
-            2: 'vertical position(up yes)',
-            3: 'closest to',
-            4: 'furtherest from',
-            5: 'count'
+            0: 's',
+            1: 'h',
+            2: 'v',
+            3: 'cl',
+            4: 'f',
+            5: 'co'
         }
 
+
 answer_dict = {
-            0: 'yes',
-            1: 'no',
-            2: 'rectangle',
-            3: 'circle',
-            4: 'red',
-            5: 'green',
-            6: 'blue',
-            7: 'orange',
-            8: 'gray',
-            9: 'yellow',
+            0: 'y',
+            1: 'n',
+            2: 'r',
+            3: 'c',
+            4: '1',
+            5: '2',
+            6: '3',
+            7: '4',
+            8: '5',
+            9: '6'
         }
 
 

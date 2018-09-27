@@ -1,3 +1,4 @@
+import cv2
 import re
 import tensorflow as tf
 import pickle
@@ -111,7 +112,8 @@ with tf.Graph().as_default():
                                             word_embedding_size, g_theta_layers,
                                             f_phi_layers,
                                             img_encoding_layers_parsed,
-                                            rnn_hidden_dim, batch_size=batch_size)
+                                            rnn_hidden_dim, batch_size=batch_size,
+                                            base_learning_rate=base_learning_rate)
 
         save_interval = 3000
 
@@ -142,7 +144,9 @@ with tf.Graph().as_default():
                                                           word_embedding_size, g_theta_layers,
                                                           f_phi_layers,
                                                           img_encoding_layers_parsed,
-                                                          batch_size=batch_size)
+                                                          batch_size=batch_size,
+                                                          question_type_dict=idx_to_qst_type,
+                                                          base_learning_rate=base_learning_rate)
         elif model_type == 'base':
             import model_base
             model = model_base.RelationalNetwork(next_batch, qst_color_vocab,
@@ -152,12 +156,11 @@ with tf.Graph().as_default():
                                                           g_theta_layers,
                                                           f_phi_layers,
                                                           img_encoding_layers_parsed,
-                                                          batch_size=batch_size)
+                                                          batch_size=batch_size,
+                                                 question_type_dict=idx_to_qst_type,
+                                                 base_learning_rate=base_learning_rate)
 
         save_interval = 1000
-
-
-
 
     config = tf.ConfigProto()
     config.gpu_options.allow_growth =True
@@ -186,32 +189,32 @@ with tf.Graph().as_default():
 
                     # question_embed, qst_len, rnn_outputs, last_states = sess.run(model.get)
 
-                    if global_step % save_interval * 10== 0:
-                        img, pred, ans, qst = sess.run([model.img, model.prediction,
-                                                    model.ans, model.qst],
-                                                       feed_dict={model.is_training:True})
-                        img = img[:10]
-                        pred = pred[:10]
-                        ans = ans[:10]
-                        qst = qst[:10]
-
-                        if data == 'CLEVR':
-
-                            ans = [answer_idx_to_word[x] for x in np.squeeze(ans)]
-                            qst = [' '.join([idx_to_word[x] for x in row]) for row in qst]
-                            pred = [answer_idx_to_word[x] for x in np.squeeze(pred)]
-
-                        elif data =='s_CLEVR':
-                            ans = [idx_to_ans[x] for x in ans]
-                            qst = ['{}_{}'.format(idx_to_color[x], idx_to_qst_type[y])
-                                   for x, y in qst]
-                            pred = [idx_to_ans[x] for x in pred]
-
-                        summary = sess.run(model.summary_additional, {model.img_pl:img,
-                                                            model.ans_word: ans,
-                                                            model.qst_word: qst,
-                                                            model.pred_word:pred})
-                        summary_writer.add_summary(summary, global_step=epoch_num)
+                    # if global_step % save_interval * 10== 0:
+                    #     img, pred, ans, qst = sess.run([model.img, model.prediction,
+                    #                                 model.ans, model.qst],
+                    #                                    feed_dict={model.is_training:True})
+                    #     img = img[:10]
+                    #     pred = pred[:10]
+                    #     ans = ans[:10]
+                    #     qst = qst[:10]
+                    #
+                    #     if data == 'CLEVR':
+                    #
+                    #         ans = [answer_idx_to_word[x] for x in np.squeeze(ans)]
+                    #         qst = [' '.join([idx_to_word[x] for x in row]) for row in qst]
+                    #         pred = [answer_idx_to_word[x] for x in np.squeeze(pred)]
+                    #
+                    #     elif data =='s_CLEVR':
+                    #         ans = [idx_to_ans[x] for x in ans]
+                    #         qst = ['{}_{}'.format(idx_to_color[x], idx_to_qst_type[y])
+                    #                for x, y in qst]
+                    #         pred = [idx_to_ans[x] for x in pred]
+                    #
+                    #     summary = sess.run(model.summary_additional, {model.img_pl:img,
+                    #                                         model.ans_word: ans,
+                    #                                         model.qst_word: qst,
+                    #                                         model.pred_word:pred})
+                    #     summary_writer.add_summary(summary, global_step=epoch_num)
 
                         # flat_1, flat_1_low, flat_2, flat_2_low, encoded_img_pair, \
                         # encoded_img_qst_pair, encoded_img_qst_pair_tp, pair_output_sum \
@@ -246,7 +249,6 @@ with tf.Graph().as_default():
                         _, global_step = sess.run([model.train_op, model.global_step],
                                                                     {model.is_training:True})
 
-
             except tf.errors.OutOfRangeError:
                 sess.run(model.increment_epoch_op)
                 epoch_num = sess.run(model.epoch)
@@ -263,6 +265,49 @@ with tf.Graph().as_default():
                 try:
                     print('test_start')
                     tmp_step = 0
+
+
+                    img, pred, ans, qst = sess.run([model.img, model.prediction,
+                                                model.ans, model.qst],
+                                                   feed_dict={model.is_training:True})
+                    sample_num = 10
+                    img = img[:sample_num]
+                    pred = pred[:sample_num]
+                    ans = ans[:sample_num]
+                    qst = qst[:sample_num]
+
+                    if data == 'CLEVR':
+
+                        ans = [answer_idx_to_word[x] for x in np.squeeze(ans)]
+                        qst = [' '.join([idx_to_word[x] for x in row]) for row in qst]
+                        pred = [answer_idx_to_word[x] for x in np.squeeze(pred)]
+
+                    elif data =='s_CLEVR':
+                        img = np.pad(img, [(0, 0), (0, 20), (0, 0), (0, 0)],
+                                            mode='constant', constant_values=(1, 1))
+                        ans = [idx_to_ans[x] for x in ans]
+                        qst = ['{}_{}'.format(idx_to_color[x], idx_to_qst_type[y])
+                               for x, y in qst]
+                        pred = [idx_to_ans[x] for x in pred]
+
+                        print(ans)
+                        print(pred)
+
+                        for i in range(sample_num):
+                            cv2.line(img[i], (37, 0), (37, 75), (0, 0, 0), 1)
+                            cv2.line(img[i], (0, 37), (75, 37), (0, 0, 0), 1)
+                            cv2.line(img[i], (0, 75), (75, 75), (0, 0, 0), 1)
+                            cv2.putText(img[i], '{} {} {}'.format(qst[i], ans[i], pred[i]),
+                                        (2, 90),
+                                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0))
+
+                    summary = sess.run(model.summary_additional, {model.img_pl:img,
+                                                        model.ans_word: ans,
+                                                        model.qst_word: qst,
+                                                        model.pred_word:pred})
+                    summary_writer.add_summary(summary, global_step=epoch_num)
+
+
                     while True:
                         if tmp_step % save_interval == 0:
                             _, test_loss_summary = sess.run([model.update_ops,
@@ -300,7 +345,8 @@ with tf.Graph().as_default():
 
                 # print([idx_to_value['answer'][x] for x in trn_pred])
                 # print([idx_to_value['answer'][x] for x in test_pred])
-                saver.save(sess, model_dir + '/model.ckpt', global_step=epoch_num)
+                saver.save(sess, os.path.join(model_dir, 'model.ckpt'),
+                           global_step=epoch_num)
 
 
         terminal_output.close()

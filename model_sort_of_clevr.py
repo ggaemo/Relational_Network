@@ -16,13 +16,19 @@ class RelationalNetwork():
         self.qst_word = tf.placeholder(tf.string, shape=[None])
         self.ans_word = tf.placeholder(tf.string, shape=[None])
         self.pred_word = tf.placeholder(tf.string, shape=[None])
-        self.img_pl = tf.placeholder(tf.float32, shape=[None, 75, 75, 3])
+        self.img_pl = tf.placeholder(tf.float32, shape=[None, 95, 75, 3])
 
         if 'batch_size' in kwargs:
             self.batch_size_for_learning_rate = kwargs['batch_size']
 
         if 'num_question' in kwargs:
             self.num_question = kwargs['num_question']
+
+        if 'question_type_dict' in kwargs:
+            self.question_type_dict = kwargs['question_type_dict']
+
+        if 'base_learning_rate' in kwargs:
+            self.base_learning_rate = kwargs['base_learning_rate']
 
         def build_mlp(inputs, layers, drop_out=None):
 
@@ -272,8 +278,6 @@ class RelationalNetwork():
             # https://github.com/tensorflow/tensorflow/issues/19568 update_ops crashses
             # wehn rnn length is 32
 
-            base_learning_rate = 2.5*1e-4
-
             # double_learning_rate = tf.train.exponential_decay(
             #     base_learning_rate * 1e-1,
             #     global_step=self.global_step,
@@ -285,10 +289,10 @@ class RelationalNetwork():
             #
             # self.learning_rate = tf.minimum(double_learning_rate, base_learning_rate)
 
-            self.learning_rate = tf.train.polynomial_decay(base_learning_rate,
+            self.learning_rate = tf.train.polynomial_decay(self.base_learning_rate,
                                                       self.epoch,
                                                       decay_steps=5,
-                                                      end_learning_rate=base_learning_rate *(self.batch_size_for_learning_rate/64),
+                                                      end_learning_rate=self.base_learning_rate *(self.batch_size_for_learning_rate/64),
                                                       )
 
         with tf.variable_scope('summary'):
@@ -307,17 +311,7 @@ class RelationalNetwork():
             summary_test.append(tf.summary.scalar('test_accuracy', self.accuracy))
 
 
-
-            question_type_dict = {
-                0: 'shape',
-                1: 'horizontal',
-                2: 'vertical',
-                3: 'closest',
-                4: 'furtherest',
-                5: 'count'
-            }
-
-            for key, val in question_type_dict.items():
+            for key, val in self.question_type_dict.items():
                 acc_type_mask = tf.equal(qst_type, key)
                 ans_tmp = tf.boolean_mask(ans, acc_type_mask)
                 pred_tmp = tf.boolean_mask(self.prediction, acc_type_mask)

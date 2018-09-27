@@ -14,13 +14,16 @@ class RelationalNetwork():
         self.rnn_hidden_dim = rnn_hidden_dim
         self.is_training = tf.placeholder(tf.bool, shape=None)
 
-        self.qst_word = tf.placeholder(tf.string, shape=[None])
-        self.ans_word = tf.placeholder(tf.string, shape=[None])
-        self.pred_word = tf.placeholder(tf.string, shape=[None])
-        self.img_pl = tf.placeholder(tf.float32, shape=[None, 128, 128, 3])
+        self.qst_word = tf.placeholder(tf.string, shape=[None], name='qst')
+        self.ans_word = tf.placeholder(tf.string, shape=[None], name='ans')
+        self.pred_word = tf.placeholder(tf.string, shape=[None], name='pred')
+        self.img_pl = tf.placeholder(tf.float32, shape=[None, 128, 128, 3], name='img_pl')
 
         if 'batch_size' in kwargs:
             self.batch_size_for_learning_rate = kwargs['batch_size']
+
+        if 'base_learning_rate' in kwargs:
+            self.base_learning_rate = kwargs['base_learning_rate']
 
         def build_mlp(inputs, layers, drop_out=None):
 
@@ -273,7 +276,7 @@ class RelationalNetwork():
             # https://github.com/tensorflow/tensorflow/issues/19568 update_ops crashses
             # wehn rnn length is 32
 
-            base_learning_rate = 2.5*1e-4
+
 
             # double_learning_rate = tf.train.exponential_decay(
             #     base_learning_rate * 1e-1,
@@ -286,10 +289,10 @@ class RelationalNetwork():
             #
             # self.learning_rate = tf.minimum(double_learning_rate, base_learning_rate)
 
-            self.learning_rate = tf.train.polynomial_decay(base_learning_rate,
+            self.learning_rate = tf.train.polynomial_decay(self.base_learning_rate,
                                                       self.epoch,
                                                       decay_steps=5,
-                                                      end_learning_rate=base_learning_rate *(self.batch_size_for_learning_rate/64),
+                                                      end_learning_rate=self.base_learning_rate *(self.batch_size_for_learning_rate/64),
                                                       )
 
         with tf.variable_scope('summary'):

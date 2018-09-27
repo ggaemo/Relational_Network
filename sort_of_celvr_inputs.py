@@ -1,8 +1,6 @@
 import tensorflow as tf
-import h5py
 import os
 import numpy as np
-import vqa_util
 import pickle
 
 def make_tf_record_file(data_type):
@@ -40,13 +38,16 @@ def make_tf_record_file(data_type):
 
         dirs = 'data/Sort-of-CLEVR/raw_data'
         filename = os.path.join(dirs, 'sort-of-clevr.pickle')
+
+        if not os.path.exists(filename):
+            import sort_of_clevr_generator_2
+
         with  open(filename, 'rb') as f:
             trn, test = pickle.load(f)
             if data_type == 'train':
                 data = trn
             elif data_type == 'val':
                 data = test
-
 
         print('datasets saved at {}'.format(filename))
         for val in data:
@@ -158,54 +159,94 @@ def inputs(batch_size, num_parallel_calls=10):
 
 def test():
     import matplotlib.pyplot as plt
-
+    import cv2
     with tf.Session() as sess:
-        batch_size = 32
+        batch_size = 24
         next_batch, trn_init_op, test_init_op = inputs(batch_size)
 
         # with open('data/CLEVR_v1.0/processed_data/question_answer_dict.pkl', 'rb') as f:
         #     convert_dict = pickle.load(f)
         # word_to_idx, idx_to_word, answer_word_to_idx, answer_idx_to_word = convert_dict
 
+        import sort_of_clevr_generator_2
+
+        color_dict = sort_of_clevr_generator_2.color_dict
+        question_type_dict = sort_of_clevr_generator_2.question_type_dict
+        answer_dict = sort_of_clevr_generator_2.answer_dict
+
         while True:
-            sess.run(trn_init_op)
-
-            a = sess.run(next_batch)
-
-            idx_to_word[95] = 'START'
-            idx_to_word[96] = 'END'
-            idx_to_word[0] = '_'
-            print('train')
-
-            for i in range(batch_size):
-                print([idx_to_word[x] for x in a['qst'][i]])
-                print([answer_idx_to_word[x] for x in a['ans'][i]])
-
-                # plt.imshow(np.asarray(a['img'][i], np.uint8))
-                # plt.imshow(a['img'][i])
-                plt.show()
-                response = input('next')
-                if response == 'n':
-                    continue
-                else:
-                    break
-
-            print('test')
             sess.run(test_init_op)
 
             a = sess.run(next_batch)
 
+            qst_c = a['qst_c']
+
+            qst = a['qst_type'] * 3 + a['qst_subtype']
+
+            ans = a['ans']
+
+            img = a['img']
+
+            height = img.shape[1]
+            half = int(height / 2)
+
+            print(half)
+
+
             for i in range(batch_size):
-                # print([idx_to_word[x] for x in a['qst'][i]])
-                # print([answer_idx_to_word[x] for x in a['ans'][i]])
-                plt.imshow(np.asarray(a['img'][i]), np.uint8)
-                # plt.imshow(a['img'][i])
-                plt.show()
-                response = input('next')
-                if response == 'n':
-                    continue
-                else:
-                    break
+
+                if qst[i] == 1 or qst[i] == 2:
+
+                    print(color_dict[qst_c[i]], question_type_dict[qst[i]])
+                    print(answer_dict[ans[i]])
+                    cv2.line(img[i], (half, 0), (half, height), (0, 0, 0), 1)
+                    cv2.line(img[i], (0, half), (height, half), (0, 0, 0), 1)
+                    plt.imshow(img[i])
+                    # plt.imshow(np.asarray(img[i], np.uint8))
+                    # plt.imshow(a['img'][i])
+                    plt.show()
+
+                    response = input('next')
+                    if response == 'n':
+                        continue
+                    else:
+                        break
+
+
+            # idx_to_word[95] = 'START'
+            # idx_to_word[96] = 'END'
+            # idx_to_word[0] = '_'
+            # print('train')
+            #
+            # for i in range(batch_size):
+            #     print([idx_to_word[x] for x in a['qst'][i]])
+            #     print([answer_idx_to_word[x] for x in a['ans'][i]])
+            #
+            #     # plt.imshow(np.asarray(a['img'][i], np.uint8))
+            #     # plt.imshow(a['img'][i])
+            #     plt.show()
+            #     response = input('next')
+            #     if response == 'n':
+            #         continue
+            #     else:
+            #         break
+            #
+            # print('test')
+            # sess.run(test_init_op)
+            #
+            # a = sess.run(next_batch)
+            #
+            # for i in range(batch_size):
+            #     # print([idx_to_word[x] for x in a['qst'][i]])
+            #     # print([answer_idx_to_word[x] for x in a['ans'][i]])
+            #     plt.imshow(np.asarray(a['img'][i]), np.uint8)
+            #     # plt.imshow(a['img'][i])
+            #     plt.show()
+            #     response = input('next')
+            #     if response == 'n':
+            #         continue
+            #     else:
+            #         break
 
 if __name__ == '__main__':
     test()
