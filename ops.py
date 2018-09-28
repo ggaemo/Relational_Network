@@ -20,14 +20,6 @@ def conv(x, channels, kernel, stride, norm,
         x = tf.contrib.layers.layer_norm(x, center=True, scale=True)
     elif norm == 'none':
         x = x
-    else:
-        gamma, beta = norm
-        epsilon = 1e-5
-
-        c_mean, c_var = tf.nn.moments(x, axes=[1, 2], keep_dims=True)
-        c_std = tf.sqrt(c_var + epsilon)
-
-        x = gamma * ((x - c_mean) / c_std) + beta
 
     if activation:
         x = activation(x)

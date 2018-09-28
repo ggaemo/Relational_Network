@@ -16,7 +16,8 @@ class RelationalNetwork():
         self.qst_word = tf.placeholder(tf.string, shape=[None])
         self.ans_word = tf.placeholder(tf.string, shape=[None])
         self.pred_word = tf.placeholder(tf.string, shape=[None])
-        self.img_pl = tf.placeholder(tf.float32, shape=[None, 95, 75, 3])
+        self.img_pl = tf.placeholder(tf.float32, shape=[None, 75 + 20, 75, 3])
+        # 20 is margin to put the question inside the image for summary view
 
         if 'batch_size' in kwargs:
             self.batch_size_for_learning_rate = kwargs['batch_size']
@@ -29,6 +30,9 @@ class RelationalNetwork():
 
         if 'base_learning_rate' in kwargs:
             self.base_learning_rate = kwargs['base_learning_rate']
+
+        if 'cnn_reg' in kwargs:
+            cnn_reg = kwargs['cnn_reg']
 
         def build_mlp(inputs, layers, drop_out=None):
 
@@ -50,7 +54,7 @@ class RelationalNetwork():
             for layer_num, layer_config in enumerate(layers):
                 (num_filter, kernel_size, stride) = layer_config
                 with tf.variable_scope('conv_layer_{}'.format(layer_num)):
-                    input = ops.conv(input, num_filter, kernel_size, stride, 'bn',
+                    input = ops.conv(input, num_filter, kernel_size, stride, cnn_reg,
                                      tf.nn.relu, self.is_training)
                     print(input.shape)
             return input
@@ -61,14 +65,14 @@ class RelationalNetwork():
                 (num_filter, kernel_size, stride) = layer_config
                 with tf.variable_scope('conv_layer_{}'.format(layer_num)):
                     input = ops.conv_transpose(input, num_filter, kernel_size, stride,
-                                               'bn',
+                                               cnn_reg,
                                                tf.nn.relu, self.is_training)
                     print(input.shape)
 
             (num_filter, kernel_size, stride) = layers[-1]
             with tf.variable_scope('conv_layer_{}'.format(layer_num + 1)):
                 input = ops.conv_transpose(input, num_filter, kernel_size, stride,
-                                           'bn',
+                                           cnn_reg,
                                            tf.nn.tanh, self.is_training)
             return input
 
@@ -136,7 +140,8 @@ class RelationalNetwork():
         with tf.variable_scope('image_embedding'):
             encoded_img = build_conv(img, self.encoding_layers)
 
-            reduced_height = int(height / (2 ** len(self.encoding_layers)))
+            reduced_height = tf.cast(tf.ceil(height / (2 ** len(self.encoding_layers))),
+                                     tf.int32)
 
 
         with tf.variable_scope('img_qst_concat'):
@@ -171,7 +176,6 @@ class RelationalNetwork():
         with tf.variable_scope('f_phi'):
             print('build f_phi')
             self.f_phi = build_mlp(output_sum, self.f_phi_layers)
-            print('no dropout')
 
         with tf.variable_scope('output'):
             self.output = tf.layers.dense(self.f_phi, ans_vocab_size,
@@ -187,7 +191,7 @@ class RelationalNetwork():
                                                                   'loss raw')
             self.xent_loss = tf.reduce_mean(xent_loss_raw)
 
-            self.loss = self.xent_loss + self.recon_loss
+            self.loss = self.xent_loss
 
         with tf.variable_scope('learning_rate'):
             self.global_step = tf.Variable(0, trainable=False, name='global_step')

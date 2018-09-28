@@ -16,7 +16,8 @@ class RelationalNetwork():
         self.qst_word = tf.placeholder(tf.string, shape=[None])
         self.ans_word = tf.placeholder(tf.string, shape=[None])
         self.pred_word = tf.placeholder(tf.string, shape=[None])
-        self.img_pl = tf.placeholder(tf.float32, shape=[None, 95, 75, 3])
+        self.img_pl = tf.placeholder(tf.float32, shape=[None, 75 + 20, 75, 3])
+        # 20 is margin to put the question inside the image for summary view
 
         if 'batch_size' in kwargs:
             self.batch_size_for_learning_rate = kwargs['batch_size']
@@ -29,6 +30,9 @@ class RelationalNetwork():
 
         if 'base_learning_rate' in kwargs:
             self.base_learning_rate = kwargs['base_learning_rate']
+
+        if 'cnn_reg' in kwargs:
+            cnn_reg = kwargs['cnn_reg']
 
         def build_mlp(inputs, layers, drop_out=None):
 
@@ -50,7 +54,7 @@ class RelationalNetwork():
             for layer_num, layer_config in enumerate(layers):
                 (num_filter, kernel_size, stride) = layer_config
                 with tf.variable_scope('conv_layer_{}'.format(layer_num)):
-                    input = ops.conv(input, num_filter, kernel_size, stride, 'bn',
+                    input = ops.conv(input, num_filter, kernel_size, stride, cnn_reg,
                                      tf.nn.relu, self.is_training)
                     print(input.shape)
             return input
@@ -61,7 +65,7 @@ class RelationalNetwork():
                 (num_filter, kernel_size, stride) = layer_config
                 with tf.variable_scope('conv_layer_{}'.format(layer_num)):
                     input = ops.conv_transpose(input, num_filter, kernel_size, stride,
-                                               'bn',
+                                               cnn_reg,
                                      tf.nn.relu, self.is_training)
                     print(input.shape)
 
@@ -246,8 +250,6 @@ class RelationalNetwork():
             #len(self.f_phi_layers) - 1)
 
 
-            print('dropout at last layer')
-
         with tf.variable_scope('output'):
             self.output = tf.layers.dense(self.f_phi, ans_vocab_size,
                                           use_bias=False) #use bias is false becuase it
@@ -262,10 +264,7 @@ class RelationalNetwork():
                                                                   'loss raw')
             self.xent_loss = tf.reduce_mean(xent_loss_raw)
 
-            # self.recon_loss = tf.losses.absolute_difference(img, recon)
-            self.recon_loss = tf.constant(0.0)
-
-            self.loss = self.xent_loss + self.recon_loss
+            self.loss = self.xent_loss
 
 
 
@@ -277,17 +276,6 @@ class RelationalNetwork():
             self.increment_epoch_op = tf.assign(self.epoch, self.epoch + 1)
             # https://github.com/tensorflow/tensorflow/issues/19568 update_ops crashses
             # wehn rnn length is 32
-
-            # double_learning_rate = tf.train.exponential_decay(
-            #     base_learning_rate * 1e-1,
-            #     global_step=self.global_step,
-            #     decay_steps= 5600 * (batch_size / 64),
-            #     decay_rate=2,
-            #     staircase=True,
-            #     name='decaying_learning_rate'
-            # )
-            #
-            # self.learning_rate = tf.minimum(double_learning_rate, base_learning_rate)
 
             self.learning_rate = tf.train.polynomial_decay(self.base_learning_rate,
                                                       self.epoch,
@@ -336,17 +324,13 @@ class RelationalNetwork():
             '''
             summaries that consumes batches
             '''
-            trn_loss_summary = [tf.summary.scalar('trn_recon_loss', self.recon_loss),
-                                tf.summary.scalar('trn_xent_loss', self.xent_loss)]
+            trn_loss_summary = [tf.summary.scalar('trn_xent_loss', self.xent_loss)]
 
-            test_loss_summary = [tf.summary.scalar('test_recon_loss', self.recon_loss),
-                                 tf.summary.scalar('test_xent_loss', self.xent_loss)]
+            test_loss_summary = [tf.summary.scalar('test_xent_loss', self.xent_loss)]
 
             self.trn_loss_summary = tf.summary.merge(trn_loss_summary)
 
             self.test_loss_summary = tf.summary.merge(test_loss_summary)
-
-
 
         with tf.variable_scope('img_qst_summary'):
             additional = list()

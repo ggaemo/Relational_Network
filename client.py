@@ -12,7 +12,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('-data', type=str)
 parser.add_argument('-model_type', type=str)
 parser.add_argument('-batch_size', type=int)
-parser.add_argument('-learning_rate', type=float, default=2.5*1e-4)
+parser.add_argument('-learning_rate', type=float, default=1e-4)
 # parser.add_argument('-test_data_size', type=int, default=149991)
 # parser.add_argument('-test_batch_size', type=int, default=128, help='second biggest '
 #                                                                     'denominator')
@@ -22,6 +22,7 @@ parser.add_argument('-rnn_hidden_dim', type=int)
 parser.add_argument('-g_theta_layers', type=int, nargs='+')
 parser.add_argument('-f_phi_layers', type=int, nargs='+')
 parser.add_argument('-img_encoding_layers', type=int, nargs='+')
+parser.add_argument('-cnn_reg', type=str, default='bn')
 parser.add_argument('-option', type=str, default='org')
 parser.add_argument('-run_meta', action='store_true', default=False)
 parser.add_argument('-restore', action='store_true', default=False)
@@ -37,6 +38,7 @@ rnn_hidden_dim = args.rnn_hidden_dim
 img_encoding_layers = args.img_encoding_layers
 g_theta_layers = args.g_theta_layers # [512, 512, 512]
 f_phi_layers = args.f_phi_layers # [512, 1024]
+cnn_reg = args.cnn_reg
 option = args.option
 run_meta = args.run_meta
 restore = args.restore
@@ -46,14 +48,35 @@ base_learning_rate = args.learning_rate
 img_encoding_layers_parsed = [img_encoding_layers[i:i+3] for i in
                               np.arange(len(img_encoding_layers), step =3)]
 
-model_dir = 'model/{}/{}_bs-{}_we-{}_rnn-{}_g-{}_f-{}_cnn-{}_{}/'.format(data,
-                                                                         model_type, batch_size,
-                                                                   word_embedding_size,
-                                                                   rnn_hidden_dim,
-                                              '-'.join([str(x) for x in g_theta_layers]),
-                                              '-'.join([str(x) for x in f_phi_layers]),
-                                              '-'.join([str(x) for x in img_encoding_layers]),
-                                              option)
+if data == 's_CLEVR':
+
+    model_dir = 'model/{}/{}_bs-{}_we-{}_g-{}_f-{}_cnn-{}_reg-{}_{}/'.format(data,
+                                                                             model_type, batch_size,
+                                                                       word_embedding_size,
+                                                  '-'.join([str(x) for x in g_theta_layers]),
+                                                  '-'.join([str(x) for x in f_phi_layers]),
+                                                  '-'.join([str(x) for x in img_encoding_layers]),
+                                                                             cnn_reg,
+                                                  option)
+elif data == 'CLEVR':
+    model_dir = 'model/{}/{}_bs-{}_we-{}_rnn-{}_g-{}_f-{}_cnn-{}_{}/'.format(data,
+                                                                             model_type,
+                                                                             batch_size,
+                                                                             word_embedding_size,
+                                                                             rnn_hidden_dim,
+                                                                             '-'.join(
+                                                                                 [str(x)
+                                                                                  for x in
+                                                                                  g_theta_layers]),
+                                                                             '-'.join(
+                                                                                 [str(x)
+                                                                                  for x in
+                                                                                  f_phi_layers]),
+                                                                             '-'.join(
+                                                                                 [str(x)
+                                                                                  for x in
+                                                                                  img_encoding_layers]),
+                                                                             option)
 
 if not os.path.exists(model_dir):
     os.makedirs(model_dir)
@@ -146,10 +169,11 @@ with tf.Graph().as_default():
                                                           img_encoding_layers_parsed,
                                                           batch_size=batch_size,
                                                           question_type_dict=idx_to_qst_type,
-                                                          base_learning_rate=base_learning_rate)
+                                                          base_learning_rate=base_learning_rate,
+                                                          cnn_reg = cnn_reg)
         elif model_type == 'base':
-            import model_base
-            model = model_base.RelationalNetwork(next_batch, qst_color_vocab,
+            import model_sort_of_clevr_base
+            model = model_sort_of_clevr_base.RelationalNetwork(next_batch, qst_color_vocab,
                                                           qst_type_vocab_size,
                                                           ans_vocab_size,
                                                           word_embedding_size,
@@ -158,7 +182,8 @@ with tf.Graph().as_default():
                                                           img_encoding_layers_parsed,
                                                           batch_size=batch_size,
                                                  question_type_dict=idx_to_qst_type,
-                                                 base_learning_rate=base_learning_rate)
+                                                 base_learning_rate=base_learning_rate,
+                                                               cnn_reg = cnn_reg)
 
         save_interval = 1000
 
@@ -191,38 +216,6 @@ with tf.Graph().as_default():
                         while True:
                             sess.run(model.ans, feed_dict={model.is_training:True})
 
-                    # question_embed, qst_len, rnn_outputs, last_states = sess.run(model.get)
-
-                    # if global_step % save_interval * 10== 0:
-                    #     img, pred, ans, qst = sess.run([model.img, model.prediction,
-                    #                                 model.ans, model.qst],
-                    #                                    feed_dict={model.is_training:True})
-                    #     img = img[:10]
-                    #     pred = pred[:10]
-                    #     ans = ans[:10]
-                    #     qst = qst[:10]
-                    #
-                    #     if data == 'CLEVR':
-                    #
-                    #         ans = [answer_idx_to_word[x] for x in np.squeeze(ans)]
-                    #         qst = [' '.join([idx_to_word[x] for x in row]) for row in qst]
-                    #         pred = [answer_idx_to_word[x] for x in np.squeeze(pred)]
-                    #
-                    #     elif data =='s_CLEVR':
-                    #         ans = [idx_to_ans[x] for x in ans]
-                    #         qst = ['{}_{}'.format(idx_to_color[x], idx_to_qst_type[y])
-                    #                for x, y in qst]
-                    #         pred = [idx_to_ans[x] for x in pred]
-                    #
-                    #     summary = sess.run(model.summary_additional, {model.img_pl:img,
-                    #                                         model.ans_word: ans,
-                    #                                         model.qst_word: qst,
-                    #                                         model.pred_word:pred})
-                    #     summary_writer.add_summary(summary, global_step=epoch_num)
-
-                        # flat_1, flat_1_low, flat_2, flat_2_low, encoded_img_pair, \
-                        # encoded_img_qst_pair, encoded_img_qst_pair_tp, pair_output_sum \
-                        #     = sess.run(model.get, {model.is_training:True})
                     if run_meta:
                         if global_step % save_interval == 0:
                             print('run_meta')
@@ -272,7 +265,8 @@ with tf.Graph().as_default():
                     print('test_start')
                     tmp_step = 0
 
-                    img, pred, ans, qst = sess.run([model.img, model.prediction,
+                    _, img, pred, ans, qst = sess.run([model.summary_update_ops,
+                                                       model.img, model.prediction,
                                                 model.ans, model.qst],
                                                    feed_dict={model.is_training:True})
                     sample_num = 10
