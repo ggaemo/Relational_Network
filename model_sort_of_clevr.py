@@ -13,10 +13,11 @@ class RelationalNetwork():
         self.encoding_layers = img_encoding_layers
         self.is_training = tf.placeholder(tf.bool, shape=None)
 
-        self.qst_word = tf.placeholder(tf.string, shape=[None])
-        self.ans_word = tf.placeholder(tf.string, shape=[None])
-        self.pred_word = tf.placeholder(tf.string, shape=[None])
+        # self.qst_word = tf.placeholder(tf.string, shape=[None])
+        # self.ans_word = tf.placeholder(tf.string, shape=[None])
+        # self.pred_word = tf.placeholder(tf.string, shape=[None])
         self.img_pl = tf.placeholder(tf.float32, shape=[None, 75 + 20, 75, 3])
+        self.g_theta_activation = tf.placeholder(tf.float32, shape=[None, 9, 9, 1])
         # 20 is margin to put the question inside the image for summary view
 
         if 'batch_size' in kwargs:
@@ -155,6 +156,9 @@ class RelationalNetwork():
 
             coord_tensor = build_coord_tensor(batch_size, reduced_height)
 
+            coord_tensor = tf.zeros_like(coord_tensor)
+            print('wo coord')
+
             encoded_img_coord = tf.concat([encoded_img, coord_tensor], axis=3)
 
             # print('without coord')
@@ -235,6 +239,8 @@ class RelationalNetwork():
             mask = tf.reshape(tf.matrix_band_part(tf.ones([num_obj, num_obj]), -1,
                                                       0), [1, num_obj, num_obj, 1])
             pair_output_lower = tf.multiply(pair_output, mask)
+            self.pair_output_lower_activation = tf.reduce_sum(tf.abs(pair_output_lower),
+                                                              3, keep_dims=True)
             # pair_output_lower = pair_output
             pair_output_sum = tf.reduce_sum(pair_output_lower, (1, 2))
 
@@ -277,7 +283,10 @@ class RelationalNetwork():
             # https://github.com/tensorflow/tensorflow/issues/19568 update_ops crashses
             # wehn rnn length is 32
 
-            self.learning_rate = tf.train.polynomial_decay(self.base_learning_rate,
+            if self.batch_size_for_learning_rate < 64:
+                self.learning_rate = self.base_learning_rate
+            else:
+                self.learning_rate = tf.train.polynomial_decay(self.base_learning_rate,
                                                       self.epoch,
                                                       decay_steps=5,
                                                       end_learning_rate=self.base_learning_rate *(self.batch_size_for_learning_rate/64),
@@ -335,9 +344,11 @@ class RelationalNetwork():
         with tf.variable_scope('img_qst_summary'):
             additional = list()
             additional.append(tf.summary.image('img', self.img_pl, max_outputs=10))
-            additional.append(tf.summary.text('ans', self.ans_word))
-            additional.append(tf.summary.text('question', self.qst_word))
-            additional.append(tf.summary.text('prediction', self.pred_word))
+            additional.append(tf.summary.image('g_theta_output', self.g_theta_activation,
+                                               max_outputs=10))
+            # additional.append(tf.summary.text('ans', self.ans_word))
+            # additional.append(tf.summary.text('question', self.qst_word))
+            # additional.append(tf.summary.text('prediction', self.pred_word))
             self.summary_additional = tf.summary.merge(additional)
 
         with tf.variable_scope('train'):

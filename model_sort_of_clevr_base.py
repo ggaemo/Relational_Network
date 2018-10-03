@@ -13,9 +13,7 @@ class RelationalNetwork():
         self.encoding_layers = img_encoding_layers
         self.is_training = tf.placeholder(tf.bool, shape=None)
 
-        self.qst_word = tf.placeholder(tf.string, shape=[None])
-        self.ans_word = tf.placeholder(tf.string, shape=[None])
-        self.pred_word = tf.placeholder(tf.string, shape=[None])
+        # self.qst_word = tf.placeholder(tf.string, shape=[None])coord_tensor = tf.zeros_like(coord_tensor))
         self.img_pl = tf.placeholder(tf.float32, shape=[None, 75 + 20, 75, 3])
         # 20 is margin to put the question inside the image for summary view
 
@@ -121,6 +119,7 @@ class RelationalNetwork():
         # qst_color, qst_type = tf.split(qst, 2, axis=1)
 
         _, height, width, num_input_channel = img.get_shape().as_list()
+        print('aa', img.get_shape().as_list())
         batch_size = tf.shape(img)[0]
 
         # do this if set_shape is not done
@@ -142,7 +141,8 @@ class RelationalNetwork():
 
             reduced_height = tf.cast(tf.ceil(height / (2 ** len(self.encoding_layers))),
                                      tf.int32)
-
+            # import math
+            # reduced_height = int(math.ceil(height / (2 ** len(self.encoding_layers))))
 
         with tf.variable_scope('img_qst_concat'):
             encoded_qst_expand = tf.reshape(encoded_qst,
@@ -150,7 +150,6 @@ class RelationalNetwork():
 
             encoded_qst_tiled = tf.tile(encoded_qst_expand, [1, reduced_height,
                                                              reduced_height, 1])
-
             print(encoded_qst_tiled.shape)
 
             encoded_img_qst = tf.concat([encoded_img, encoded_qst_tiled], axis=3)
@@ -168,10 +167,7 @@ class RelationalNetwork():
 
             output_sum = tf.reduce_sum(output, (1, 2))
 
-            # self.a = tf.assert_equal(pair_output_lower, pair_output,
-            #                                                message='lower_pair')
-            #
-            # self.get = [pair_output_lower, pair_output]
+            # output_sum = output
 
         with tf.variable_scope('f_phi'):
             print('build f_phi')
@@ -200,7 +196,10 @@ class RelationalNetwork():
             # https://github.com/tensorflow/tensorflow/issues/19568 update_ops crashses
             # wehn rnn length is 32
 
-            self.learning_rate = tf.train.polynomial_decay(self.base_learning_rate,
+            if self.batch_size_for_learning_rate < 64:
+                self.learning_rate = self.base_learning_rate
+            else:
+                self.learning_rate = tf.train.polynomial_decay(self.base_learning_rate,
                                                       self.epoch,
                                                       decay_steps=5,
                                                       end_learning_rate=self.base_learning_rate *(self.batch_size_for_learning_rate/64),
@@ -258,9 +257,9 @@ class RelationalNetwork():
         with tf.variable_scope('img_qst_summary'):
             additional = list()
             additional.append(tf.summary.image('img', self.img_pl, max_outputs=10))
-            additional.append(tf.summary.text('ans', self.ans_word))
-            additional.append(tf.summary.text('question', self.qst_word))
-            additional.append(tf.summary.text('prediction', self.pred_word))
+            # additional.append(tf.summary.text('ans', self.ans_word))
+            # additional.append(tf.summary.text('question', self.qst_word))
+            # additional.append(tf.summary.text('prediction', self.pred_word))
             self.summary_additional = tf.summary.merge(additional)
 
         with tf.variable_scope('train'):

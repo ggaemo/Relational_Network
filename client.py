@@ -192,7 +192,7 @@ with tf.Graph().as_default():
     with tf.Session(config=config) as sess:
         saver = tf.train.Saver(max_to_keep=5)
         summary_writer = tf.summary.FileWriter(model_dir, flush_secs=5, graph=sess.graph)
-        global_step = 0
+        global_step = 1
         if restore:
             latest_model = tf.train.latest_checkpoint(model_dir)
             print('restored model from ', latest_model)
@@ -212,10 +212,6 @@ with tf.Graph().as_default():
 
                 while True:
 
-                    if restore:
-                        while True:
-                            sess.run(model.ans, feed_dict={model.is_training:True})
-
                     if run_meta:
                         if global_step % save_interval == 0:
                             print('run_meta')
@@ -228,7 +224,7 @@ with tf.Graph().as_default():
                                                                         {model.is_training: True},
                                                                         options=run_options,
                                                                         run_metadata=run_metadata)
-                            summary_writer.add_summary(trn_loss_summary, i)
+                            summary_writer.add_summary(trn_loss_summary, epoch_num)
                             summary_writer.add_run_metadata(run_metadata, 'step_{}'.format(
                                 epoch_num),
                                                             epoch_num)
@@ -241,7 +237,7 @@ with tf.Graph().as_default():
                                                    model.trn_loss_summary],
                                                                     {model.is_training:True})
 
-                        summary_writer.add_summary(trn_loss_summary, global_step)
+                        summary_writer.add_summary(trn_loss_summary, epoch_num)
                     else:
                         _, global_step = sess.run([model.train_op, model.global_step],
                                                                     {model.is_training:True})
@@ -265,15 +261,16 @@ with tf.Graph().as_default():
                     print('test_start')
                     tmp_step = 0
 
-                    _, img, pred, ans, qst = sess.run([model.summary_update_ops,
+                    _, img, pred, ans, qst, activ = sess.run([model.summary_update_ops,
                                                        model.img, model.prediction,
-                                                model.ans, model.qst],
+                                                model.ans, model.qst, model.pair_output_lower_activation],
                                                    feed_dict={model.is_training:True})
                     sample_num = 10
                     img = img[:sample_num]
                     pred = pred[:sample_num]
                     ans = ans[:sample_num]
                     qst = qst[:sample_num]
+                    activ = activ[:sample_num]
 
                     if data == 'CLEVR':
 
@@ -301,11 +298,8 @@ with tf.Graph().as_default():
                                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0))
 
                     summary = sess.run(model.summary_additional, {model.img_pl:img,
-                                                        model.ans_word: ans,
-                                                        model.qst_word: qst,
-                                                        model.pred_word:pred})
+                                                                  model.g_theta_activation:activ})
                     summary_writer.add_summary(summary, global_step=epoch_num)
-
 
                     while True:
                         if tmp_step % save_interval == 0:
