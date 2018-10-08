@@ -5,6 +5,10 @@ import random
 # import cPickle as pickle
 import pickle
 
+from skimage.draw import circle
+from skimage.draw import rectangle
+
+
 train_size = 9800
 test_size = 200
 img_size = 75
@@ -24,7 +28,6 @@ colors = [
     (148, 0, 211),  ##darkviolet
     (255, 255, 0)  ##y
 ]
-
 
 
 color_dict = {
@@ -54,18 +57,26 @@ question_type_dict = {
             5: 'co'
         }
 
+answer_size_before_color = 10 # 0 ~ 9 answer_dict
+answer_size_before_count = 4 # 0 ~ 4
 
 answer_dict = {
             0: 'y',
             1: 'n',
-            2: 'r',
-            3: 'c',
+            2: 'rec',
+            3: 'cir',
             4: '1',
             5: '2',
             6: '3',
             7: '4',
             8: '5',
-            9: '6'
+            9: '6',
+            10: 'r',
+            11: 'g',
+            12: 'b',
+            13: 'o',
+            14: 'v',
+            15: 'y'
         }
 
 
@@ -95,11 +106,16 @@ def build_dataset():
         if random.random() < 0.5:
             start = (center[0] - size, center[1] - size)
             end = (center[0] + size, center[1] + size)
-            cv2.rectangle(img, start, end, color, -1)
+            # cv2.rectangle(img, start, end, color, -1)
+            rr, cc = rectangle(start, end)
+            img[rr, cc] = color
             objects.append((color_id, center, 'r'))
         else:
             center_ = (center[0], center[1])
-            cv2.circle(img, center_, size, color, -1)
+            # cv2.circle(img, center_, size, color, -1)
+            rr, cc = circle(*center_, size + 1)
+            img[rr, cc] = color
+
             objects.append((color_id, center, 'c'))
 
     rel_questions = []
@@ -118,7 +134,7 @@ def build_dataset():
         """Answer : [yes, no, rectangle, circle, r, g, b, o, k, y]"""
         if subtype == 0:
             """query shape->rectangle/circle"""
-            if objects[color][2] == 'r':
+            if objects[color][2] == 'rec':
                 answer = 2
             else:
                 answer = 3
@@ -154,20 +170,24 @@ def build_dataset():
             dist_list = [((my_obj - obj[1]) ** 2).sum() for obj in objects]
             dist_list[dist_list.index(0)] = 999
             closest = dist_list.index(min(dist_list))
-            if objects[closest][2] == 'r':
-                answer = 2
-            else:
-                answer = 3
+            # if objects[closest][2] == 'rec':
+            #     answer = 2
+            # else:
+            #     answer = 3
+            answer =objects[closest][0] + answer_size_before_color
 
         elif subtype == 1:
             """furthest-from->rectangle/circle"""
             my_obj = objects[color][1]
             dist_list = [((my_obj - obj[1]) ** 2).sum() for obj in objects]
             furthest = dist_list.index(max(dist_list))
-            if objects[furthest][2] == 'r':
-                answer = 2
-            else:
-                answer = 3
+
+            # if objects[furthest][2] == 'rec':
+            #     answer = 2
+            # else:
+            #     answer = 3
+
+            answer = objects[furthest][0] + answer_size_before_color
 
         elif subtype == 2:
             """count->1~6"""
