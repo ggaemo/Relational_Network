@@ -17,7 +17,10 @@ class RelationalNetwork():
         # self.ans_word = tf.placeholder(tf.string, shape=[None])
         # self.pred_word = tf.placeholder(tf.string, shape=[None])
         self.img_pl = tf.placeholder(tf.float32, shape=[None, 75 + 20, 75, 3])
-        self.g_theta_activation = tf.placeholder(tf.float32, shape=[None, 9, 9, 1])
+
+
+
+
         # 20 is margin to put the question inside the image for summary view
 
         if 'batch_size' in kwargs:
@@ -34,6 +37,17 @@ class RelationalNetwork():
 
         if 'cnn_reg' in kwargs:
             cnn_reg = kwargs['cnn_reg']
+
+        if 'num_obj' in kwargs:
+            num_obj = kwargs['num_obj']
+
+        if 'reduced_height' in kwargs:
+            reduced_height = kwargs['reduced_height']
+
+        self.g_theta_activation = tf.placeholder(tf.float32,
+                                                 shape=[None, num_obj, num_obj, 1])
+        self.gate_pl = tf.placeholder(tf.float32,
+                                      shape=[None, reduced_height, reduced_height, 1])
 
         def build_mlp(inputs, layers, drop_out=None):
 
@@ -144,10 +158,20 @@ class RelationalNetwork():
 
             encoded_qst = tf.concat([qst_color_embed, qst_type_embed], axis=1)
 
+            encode_num_channels = self.encoding_layers[-1][0]
+
+            encoded_qst = build_mlp(encoded_qst, [32, 32, encode_num_channels + 4])
+
+            key_dim = int(encode_num_channels/2) +2
+            val_dim = key_dim
+
+            # encoded_qst = tf.reshape(encoded_qst, [batch_size, 1, 1, encode_num_channels + 4])
+            encoded_qst_key, encoded_qst_val = tf.split(encoded_qst, 2, axis=1)
+            # last 2 added because of coordinate tensor
+
 
         with tf.variable_scope('image_embedding'):
             encoded_img = build_conv(img, self.encoding_layers)
-
 
             encode_num_channels = self.encoding_layers[-1][0]
             reduced_height = tf.cast(tf.ceil(height / (2 ** len(self.encoding_layers))),
@@ -156,29 +180,33 @@ class RelationalNetwork():
 
             coord_tensor = build_coord_tensor(batch_size, reduced_height)
 
-            coord_tensor = tf.zeros_like(coord_tensor)
-            print('wo coord')
+            # encoded_img_coord = tf.concat([encoded_img, coord_tensor], axis=3)
 
-            encoded_img_coord = tf.concat([encoded_img, coord_tensor], axis=3)
+            enc_img_key, enc_img_val = tf.split(encoded_img, 2, axis=3)
 
-            # print('without coord')
-            #
-            # encoded_img_coord = tf.concat([encoded_img, tf.zeros((batch_size,
-            #                                                      reduced_height,
-            #                                                      reduced_height,
-            #                                                      2))], axis=3)
+            enc_img_key_coord = tf.concat([enc_img_key, coord_tensor], axis=3)
+            enc_img_val_coord = tf.concat([enc_img_val, coord_tensor], axis=3)
 
-            # self.get = [coord_tensor, encoded_img_coord]
+            encoded_qst_key = tf.reshape(encoded_qst_key, [batch_size, 1, 1,
+                                                           key_dim])
+            gate_logit = tf.reduce_sum(tf.multiply(enc_img_key_coord, encoded_qst_key),
+                                       axis=3)
 
-        # with tf.variable_scope('decoder'):
-        #     self.decoding_layers = self.encoding_layers
-        #     self.decoding_layers[-1][0] = 3 # last channel to have 3 channels
-        #     recon = build_conv_transpose(encoded_img, self.decoding_layers)
+            gate_logit = tf.reshape(gate_logit, [batch_size, -1])
+            gate = tf.nn.softmax(gate_logit, axis=1)
+            gate = tf.reshape(gate, [batch_size, reduced_height, reduced_height])
+
+            gate = tf.expand_dims(gate, 3)
+
+            self.gate = gate
+
+            encoded_img_coord = tf.multiply(gate, enc_img_val_coord)
+
 
         with tf.variable_scope('image_object_pairing'):
             print('encoded img_coord', encoded_img_coord.shape)
             encoded_img_flatten = tf.reshape(encoded_img_coord, [batch_size, num_obj,
-                                                           encode_num_channels + 2])
+                                                                 val_dim])
             #coord num channel 2
 
             print(encoded_img_flatten.shape)
@@ -206,8 +234,14 @@ class RelationalNetwork():
 
 
         with tf.variable_scope('img_qst_concat'):
-            encoded_qst_expand = tf.reshape(encoded_qst,
-                                            [batch_size, word_embedding_size * 2, 1, 1])
+            # encoded_qst_expand = tf.reshape(encoded_qst,
+            #                                 [batch_size, word_embedding_size * 2, 1, 1])
+
+            encoded_qst_expand = tf.reshape(encoded_qst_val,
+                                            [batch_size, val_dim, 1,
+                                             1])
+
+
             # [b, 1,
             #  rnn_hidden_dim]
             encoded_qst_tiled = tf.tile(encoded_qst_expand, [1, 1, num_obj, num_obj])
@@ -293,6 +327,10 @@ class RelationalNetwork():
                                                       )
 
         with tf.variable_scope('summary'):
+
+
+
+
             self.prediction = tf.argmax(self.output, axis=1)
             self.accuracy, _ = tf.metrics.accuracy(ans, self.prediction,
                                                  updates_collections='summary_update')
@@ -346,6 +384,8 @@ class RelationalNetwork():
             additional.append(tf.summary.image('img', self.img_pl, max_outputs=10))
             additional.append(tf.summary.image('g_theta_output', self.g_theta_activation,
                                                max_outputs=10))
+            additional.append(tf.summary.image('gate', self.gate_pl,
+                                               max_outputs=10))
             # additional.append(tf.summary.text('ans', self.ans_word))
             # additional.append(tf.summary.text('question', self.qst_word))
             # additional.append(tf.summary.text('prediction', self.pred_word))
@@ -356,7 +396,6 @@ class RelationalNetwork():
             self.update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
             self.summary_update_ops = tf.get_collection('summary_update')
             self.assert_ops = tf.get_collection('assert')
-
 
             with tf.control_dependencies(self.update_ops + self.assert_ops + self.summary_update_ops):
                 self.train_op = tf.train.AdamOptimizer(self.learning_rate).minimize(

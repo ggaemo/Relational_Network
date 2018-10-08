@@ -154,6 +154,9 @@ with tf.Graph().as_default():
         qst_type_vocab_size = len(idx_to_qst_type)
         ans_vocab_size = len(idx_to_ans)
 
+        height = 75
+        reduced_height = np.ceil(height / (2 ** len(img_encoding_layers_parsed)))
+        num_obj = reduced_height ** 2
 
         with tf.variable_scope('inputs'):
             next_batch, trn_init_op, test_init_op = inputs.inputs(batch_size)
@@ -170,7 +173,9 @@ with tf.Graph().as_default():
                                                           batch_size=batch_size,
                                                           question_type_dict=idx_to_qst_type,
                                                           base_learning_rate=base_learning_rate,
-                                                          cnn_reg = cnn_reg)
+                                                          cnn_reg = cnn_reg,
+                                                          reduced_height = reduced_height,
+                                                          num_obj = num_obj)
         elif model_type == 'base':
             import model_sort_of_clevr_base
             model = model_sort_of_clevr_base.RelationalNetwork(next_batch, qst_color_vocab,
@@ -261,9 +266,10 @@ with tf.Graph().as_default():
                     print('test_start')
                     tmp_step = 0
 
-                    _, img, pred, ans, qst, activ = sess.run([model.summary_update_ops,
-                                                       model.img, model.prediction,
-                                                model.ans, model.qst, model.pair_output_lower_activation],
+                    _, img, pred, ans, qst, activ, gate = sess.run([
+                        model.summary_update_ops, model.img, model.prediction,
+                        model.ans, model.qst, model.pair_output_lower_activation,
+                    model.gate],
                                                    feed_dict={model.is_training:True})
                     sample_num = 10
                     img = img[:sample_num]
@@ -271,6 +277,7 @@ with tf.Graph().as_default():
                     ans = ans[:sample_num]
                     qst = qst[:sample_num]
                     activ = activ[:sample_num]
+                    gate = gate[:sample_num]
 
                     if data == 'CLEVR':
 
@@ -298,7 +305,8 @@ with tf.Graph().as_default():
                                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0))
 
                     summary = sess.run(model.summary_additional, {model.img_pl:img,
-                                                                  model.g_theta_activation:activ})
+                                                                  model.g_theta_activation:activ,
+                                                                  model.gate_pl:gate})
                     summary_writer.add_summary(summary, global_step=epoch_num)
 
                     while True:
