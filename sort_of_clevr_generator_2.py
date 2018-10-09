@@ -18,7 +18,7 @@ question_size = 11  ##6 for one-hot vector of color, 2 for question type, 3 for 
 
 nb_questions = 10
 
-dirs = 'data/Sort-of-CLEVR/raw_data'
+
 
 colors = [
     (255, 0, 0),  ##r
@@ -80,10 +80,6 @@ answer_dict = {
         }
 
 
-try:
-    os.makedirs(dirs)
-except:
-    print('directory {} already exists'.format(dirs))
 
 
 def center_generate(objects):
@@ -109,20 +105,20 @@ def build_dataset():
             # cv2.rectangle(img, start, end, color, -1)
             rr, cc = rectangle(start, end)
             img[rr, cc] = color
-            objects.append((color_id, center, 'r'))
+            objects.append((color_id, center, 'rec'))
         else:
             center_ = (center[0], center[1])
             # cv2.circle(img, center_, size, color, -1)
             rr, cc = circle(*center_, size + 1)
             img[rr, cc] = color
 
-            objects.append((color_id, center, 'c'))
+            objects.append((color_id, center, 'cir'))
 
     rel_questions = []
     norel_questions = []
     rel_answers = []
     norel_answers = []
-    """Non-relational questions"""
+    # """Non-relational questions"""
     for _ in range(nb_questions):
         question = np.zeros((question_size))
         color = random.randint(0, 5)
@@ -136,8 +132,11 @@ def build_dataset():
             """query shape->rectangle/circle"""
             if objects[color][2] == 'rec':
                 answer = 2
-            else:
+            elif objects[color][2] == 'cir':
                 answer = 3
+            else:
+                print('error in dat')
+                exit()
 
         elif subtype == 1:
             """query horizontal position->yes/no"""
@@ -168,13 +167,16 @@ def build_dataset():
             """closest-to->rectangle/circle"""
             my_obj = objects[color][1]
             dist_list = [((my_obj - obj[1]) ** 2).sum() for obj in objects]
-            dist_list[dist_list.index(0)] = 999
+            dist_list[dist_list.index(0)] = (img_size ** 2) * 2 #max distance
             closest = dist_list.index(min(dist_list))
-            # if objects[closest][2] == 'rec':
-            #     answer = 2
-            # else:
-            #     answer = 3
-            answer =objects[closest][0] + answer_size_before_color
+            if objects[closest][2] == 'rec':
+                answer = 2
+            elif objects[closest][2] == 'cir':
+                answer = 3
+            else:
+                print('error in data')
+                exit()
+            # answer = objects[closest][0] + answer_size_before_color
 
         elif subtype == 1:
             """furthest-from->rectangle/circle"""
@@ -182,12 +184,15 @@ def build_dataset():
             dist_list = [((my_obj - obj[1]) ** 2).sum() for obj in objects]
             furthest = dist_list.index(max(dist_list))
 
-            # if objects[furthest][2] == 'rec':
-            #     answer = 2
-            # else:
-            #     answer = 3
+            if objects[furthest][2] == 'rec':
+                answer = 2
+            elif objects[furthest][2] == 'cir':
+                answer = 3
+            else:
+                print('error in data')
+                exit()
 
-            answer = objects[furthest][0] + answer_size_before_color
+            # answer = objects[furthest][0] + answer_size_before_color
 
         elif subtype == 2:
             """count->1~6"""
@@ -197,7 +202,7 @@ def build_dataset():
                 if obj[2] == my_obj:
                     count += 1
 
-            answer = count + 4
+            answer = count + answer_size_before_count
 
         rel_answers.append(answer)
 
@@ -208,20 +213,39 @@ def build_dataset():
     dataset = (img, relations, norelations)
     return dataset
 
-filename = os.path.join(dirs, 'sort-of-clevr.pickle')
+def generate_data(data_option=None):
+    if data_option:
+        dirs = 'data/Sort-of-CLEVR/raw_data/{}'.format(data_option)
+    else:
+        dirs = 'data/Sort-of-CLEVR/raw_data'
 
-if not os.path.exists(filename):
+    try:
+        os.makedirs(dirs)
+    except:
+        print('directory {} already exists'.format(dirs))
 
-    print('building test datasets...')
-    test_datasets = [build_dataset() for _ in range(test_size)]
-    print('building train datasets...')
-    train_datasets = [build_dataset() for _ in range(train_size)]
+    filename = os.path.join(dirs, 'sort-of-clevr.pickle')
 
-    # img_count = 0
-    # cv2.imwrite(os.path.join(dirs,'{}.png'.format(img_count)), cv2.resize(train_datasets[0][0]*255, (512,512)))
+    if not os.path.exists(filename):
 
-    print('saving datasets...')
+        print('building test datasets...')
+        test_datasets = [build_dataset() for _ in range(test_size)]
+        print('building train datasets...')
+        train_datasets = [build_dataset() for _ in range(train_size)]
 
-    with  open(filename, 'wb') as f:
-        pickle.dump((train_datasets, test_datasets), f)
-    print('datasets saved at {}'.format(filename))
+        # img_count = 0
+        # cv2.imwrite(os.path.join(dirs,'{}.png'.format(img_count)), cv2.resize(train_datasets[0][0]*255, (512,512)))
+
+        print('saving datasets...')
+
+        with  open(filename, 'wb') as f:
+            pickle.dump((train_datasets, test_datasets), f)
+        print('datasets saved at {}'.format(filename))
+
+
+def test():
+    a = [build_dataset() for _ in range(1000)]
+
+
+if __name__ == '__main__':
+    test()
