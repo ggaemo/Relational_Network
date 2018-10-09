@@ -3,7 +3,7 @@ import os
 import numpy as np
 import pickle
 
-def make_tf_record_file(data_type):
+def make_tf_record_file(data_type, data_option):
 
     def make_example(img, qst_color, qst_type, qst_subtype, answer):
 
@@ -27,22 +27,29 @@ def make_tf_record_file(data_type):
 
         return example
 
+    data_dir = 'data/Sort-of-CLEVR/seq_tfrecord_data'
+    if data_option:
+        data_dir = os.path.join(data_dir, data_option)
 
-    if not os.path.exists('data/Sort-of-CLEVR/seq_tfrecord_data/{0}'.format(data_type)):
-        os.makedirs('data/Sort-of-CLEVR/seq_tfrecord_data/{0}'.format(data_type))
+    if not os.path.exists(data_dir):
+        os.makedirs(os.path.join(data_dir))
 
-    if len(os.listdir('data/Sort-of-CLEVR/seq_tfrecord_data/{0}'.format(data_type))) == 0:
+    filename = os.path.join(data_dir, '{}.tfrecord'.format(data_type))
+    if not os.path.exists(filename):
 
-        writer = tf.python_io.TFRecordWriter('data/Sort-of-CLEVR/seq_tfrecord_data/{'
-                                             '0}/{0}.tfrecord'.format(data_type))
+        writer = tf.python_io.TFRecordWriter(filename)
 
         dirs = 'data/Sort-of-CLEVR/raw_data'
-        filename = os.path.join(dirs, 'sort-of-clevr.pickle')
+        if data_option:
+            dirs = os.path.join(dirs, data_option)
 
-        if not os.path.exists(filename):
+        raw_data_filename = os.path.join(dirs, 'sort-of-clevr.pickle')
+
+        if not os.path.exists(raw_data_filename):
             import sort_of_clevr_generator_2
+            sort_of_clevr_generator_2.generate_data(data_option)
 
-        with  open(filename, 'rb') as f:
+        with  open(raw_data_filename, 'rb') as f:
             trn, test = pickle.load(f)
             if data_type == 'train':
                 data = trn
@@ -91,7 +98,7 @@ def make_tf_record_file(data_type):
     else:
         print('tfrecord already made')
 
-def inputs(batch_size, num_parallel_calls=10):
+def inputs(batch_size, data_option, num_parallel_calls=10):
 
     def decode(serialized_example):
         """Parses an image and label from the given `serialized_example`."""
@@ -133,17 +140,20 @@ def inputs(batch_size, num_parallel_calls=10):
         return dataset
 
     for data_type in ['train', 'val']:
-        dir_path = 'data/Sort-of-CLEVR/seq_tfrecord_data/{}/'.format(data_type)
+        data_dir = 'data/Sort-of-CLEVR/seq_tfrecord_data/{}'.format(data_option)
 
-        if len(os.listdir(dir_path)) == 0:
-            make_tf_record_file(data_type)
+        file_path = '{}/{}.tfrecord'.format(data_dir, data_type)
 
-        files_path = [dir_path+x for x in os.listdir(dir_path)]
+        if not os.path.exists(file_path):
+
+            make_tf_record_file(data_type, data_option)
+
+        # files_path = [dir_path+x for x in os.listdir(dir_path)]
 
         if data_type =='train':
-            trn_dataset = make_dataset(files_path)
+            trn_dataset = make_dataset(file_path)
         elif data_type =='val':
-            test_dataset = make_dataset(files_path)
+            test_dataset = make_dataset(file_path)
 
     iterator = tf.data.Iterator.from_structure(trn_dataset.output_types, trn_dataset.output_shapes)
 

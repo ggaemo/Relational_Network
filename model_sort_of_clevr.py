@@ -12,6 +12,7 @@ class RelationalNetwork():
         self.f_phi_layers = f_phi_layers
         self.encoding_layers = img_encoding_layers
         self.is_training = tf.placeholder(tf.bool, shape=None)
+        tf.add_to_collection('is_training', self.is_training)
 
         # self.qst_word = tf.placeholder(tf.string, shape=[None])
         # self.ans_word = tf.placeholder(tf.string, shape=[None])
@@ -137,6 +138,12 @@ class RelationalNetwork():
                              axis=1)
 
 
+        tf.add_to_collection('img', img)
+        tf.add_to_collection('ans', ans)
+        tf.add_to_collection('qst', self.qst)
+        tf.add_to_collection('qst_color', qst_color)
+        tf.add_to_collection('qst_type', qst_type)
+
 
         # qst_color, qst_type = tf.split(qst, 2, axis=1)
 
@@ -160,7 +167,9 @@ class RelationalNetwork():
 
             encode_num_channels = self.encoding_layers[-1][0]
 
-            encoded_qst = build_mlp(encoded_qst, [32, 32, encode_num_channels + 4])
+            encoded_qst = build_mlp(encoded_qst, [64, 64, encode_num_channels + 4])
+
+            tf.add_to_collection('encoded_qst', encoded_qst)
 
             key_dim = int(encode_num_channels/2) +2
             val_dim = key_dim
@@ -173,7 +182,7 @@ class RelationalNetwork():
         with tf.variable_scope('image_embedding'):
             encoded_img = build_conv(img, self.encoding_layers)
 
-            encode_num_channels = self.encoding_layers[-1][0]
+
             reduced_height = tf.cast(tf.ceil(height / (2 ** len(self.encoding_layers))),
                                      tf.int32)
             num_obj = reduced_height ** 2
@@ -189,16 +198,29 @@ class RelationalNetwork():
 
             encoded_qst_key = tf.reshape(encoded_qst_key, [batch_size, 1, 1,
                                                            key_dim])
-            gate_logit = tf.reduce_sum(tf.multiply(enc_img_key_coord, encoded_qst_key),
-                                       axis=3)
 
+            # gate_logit = tf.reduce_sum(tf.multiply(enc_img_key_coord, encoded_qst_key),
+            #                            axis=3) / tf.sqrt(tf.cast(key_dim, tf.float32))
+
+            encoded_qst_key = tf.tile(encoded_qst_key, [1, reduced_height,
+                                                        reduced_height, 1])
+            gate_concate = tf.concat([enc_img_key_coord, encoded_qst_key], axis=3)
+            gate_logit = build_mlp(gate_concate, [64, 64, 1])
+
+            #soft max
             gate_logit = tf.reshape(gate_logit, [batch_size, -1])
             gate = tf.nn.softmax(gate_logit, axis=1)
+
+            #bernoulli
+            # gate = tf.nn.sigmoid(gate_logit)
+
             gate = tf.reshape(gate, [batch_size, reduced_height, reduced_height])
 
             gate = tf.expand_dims(gate, 3)
 
             self.gate = gate
+
+            tf.add_to_collection('gate', gate)
 
             encoded_img_coord = tf.multiply(gate, enc_img_val_coord)
 
@@ -209,7 +231,7 @@ class RelationalNetwork():
                                                                  val_dim])
             #coord num channel 2
 
-            print(encoded_img_flatten.shape)
+            print('encoded flatten', encoded_img_flatten.shape)
             # [b, d*d, # feature]
 
             encoded_img_flatten = tf.transpose(encoded_img_flatten, (0, 2, 1)) # for lower triangle
@@ -249,7 +271,7 @@ class RelationalNetwork():
                                                     0, name='lower_matrix')  # lower
             # triangle
 
-            print(encoded_qst_tiled.shape)
+            print('encoded tiled', encoded_qst_tiled.shape)
 
             encoded_img_qst_pair = tf.concat([encoded_img_pair, encoded_qst_tiled], axis=1)
 
@@ -275,6 +297,9 @@ class RelationalNetwork():
             pair_output_lower = tf.multiply(pair_output, mask)
             self.pair_output_lower_activation = tf.reduce_sum(tf.abs(pair_output_lower),
                                                               3, keep_dims=True)
+
+            tf.add_to_collection('g_theta', pair_output_lower)
+
             # pair_output_lower = pair_output
             pair_output_sum = tf.reduce_sum(pair_output_lower, (1, 2))
 
@@ -328,10 +353,10 @@ class RelationalNetwork():
 
         with tf.variable_scope('summary'):
 
-
-
-
             self.prediction = tf.argmax(self.output, axis=1)
+
+            tf.add_to_collection('pred', self.prediction)
+
             self.accuracy, _ = tf.metrics.accuracy(ans, self.prediction,
                                                  updates_collections='summary_update')
 

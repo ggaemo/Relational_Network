@@ -13,10 +13,11 @@ parser.add_argument('-data', type=str)
 parser.add_argument('-model_type', type=str)
 parser.add_argument('-batch_size', type=int)
 parser.add_argument('-learning_rate', type=float, default=1e-4)
+parser.add_argument('-data_option', type=str)
 # parser.add_argument('-test_data_size', type=int, default=149991)
 # parser.add_argument('-test_batch_size', type=int, default=128, help='second biggest '
 #                                                                     'denominator')
-parser.add_argument('-num_epochs', type=int, default=10000)
+parser.add_argument('-num_epochs', type=int, default=100)
 parser.add_argument('-word_embedding_size', type=int)
 parser.add_argument('-rnn_hidden_dim', type=int)
 parser.add_argument('-g_theta_layers', type=int, nargs='+')
@@ -43,40 +44,42 @@ option = args.option
 run_meta = args.run_meta
 restore = args.restore
 base_learning_rate = args.learning_rate
-
+data_option = args.data_option
 
 img_encoding_layers_parsed = [img_encoding_layers[i:i+3] for i in
                               np.arange(len(img_encoding_layers), step =3)]
 
-if data == 's_CLEVR':
+def layer_config_to_str(layer_config):
+    return '-'.join([str(x) for x in layer_config])
 
-    model_dir = 'model/{}/{}_bs-{}_we-{}_g-{}_f-{}_cnn-{}_reg-{}_{}/'.format(data,
-                                                                             model_type, batch_size,
-                                                                       word_embedding_size,
-                                                  '-'.join([str(x) for x in g_theta_layers]),
-                                                  '-'.join([str(x) for x in f_phi_layers]),
-                                                  '-'.join([str(x) for x in img_encoding_layers]),
-                                                                             cnn_reg,
-                                                  option)
+if data == 's_CLEVR':
+    dir_format = 'model/{}/{}_bs-{}_we-{}_g-{}_f-{}_cnn-{}_reg-{}_{}_data-{}/'
+    model_dir = dir_format.format(
+        data,
+        model_type,
+        batch_size,
+        word_embedding_size,
+        layer_config_to_str(g_theta_layers),
+        layer_config_to_str(f_phi_layers),
+        layer_config_to_str(img_encoding_layers),
+        cnn_reg,
+        option,
+        data_option
+    )
+
 elif data == 'CLEVR':
-    model_dir = 'model/{}/{}_bs-{}_we-{}_rnn-{}_g-{}_f-{}_cnn-{}_{}/'.format(data,
-                                                                             model_type,
-                                                                             batch_size,
-                                                                             word_embedding_size,
-                                                                             rnn_hidden_dim,
-                                                                             '-'.join(
-                                                                                 [str(x)
-                                                                                  for x in
-                                                                                  g_theta_layers]),
-                                                                             '-'.join(
-                                                                                 [str(x)
-                                                                                  for x in
-                                                                                  f_phi_layers]),
-                                                                             '-'.join(
-                                                                                 [str(x)
-                                                                                  for x in
-                                                                                  img_encoding_layers]),
-                                                                             option)
+    dir_format = 'model/{}/{}_bs-{}_we-{}_rnn-{}_g-{}_f-{}_cnn-{}_{}/'
+    model_dir = dir_format.format(
+        data,
+        model_type,
+        batch_size,
+        word_embedding_size,
+        rnn_hidden_dim,
+        layer_config_to_str(g_theta_layers),
+        layer_config_to_str(f_phi_layers),
+        layer_config_to_str(img_encoding_layers),
+        option
+    )
 
 if not os.path.exists(model_dir):
     os.makedirs(model_dir)
@@ -159,36 +162,46 @@ with tf.Graph().as_default():
         num_obj = reduced_height ** 2
 
         with tf.variable_scope('inputs'):
-            next_batch, trn_init_op, test_init_op = inputs.inputs(batch_size)
+            next_batch, trn_init_op, test_init_op = inputs.inputs(batch_size, data_option)
+            tf.add_to_collection('test_init_op', test_init_op)
+            tf.add_to_collection('train_init_op', trn_init_op)
 
         if model_type == 'rn':
             import model_sort_of_clevr
 
-            model = model_sort_of_clevr.RelationalNetwork(next_batch, qst_color_vocab,
-                                                          qst_type_vocab_size,
-                                                          ans_vocab_size,
-                                                          word_embedding_size, g_theta_layers,
-                                                          f_phi_layers,
-                                                          img_encoding_layers_parsed,
-                                                          batch_size=batch_size,
-                                                          question_type_dict=idx_to_qst_type,
-                                                          base_learning_rate=base_learning_rate,
-                                                          cnn_reg = cnn_reg,
-                                                          reduced_height = reduced_height,
-                                                          num_obj = num_obj)
+            model = model_sort_of_clevr.RelationalNetwork(
+                next_batch,
+                qst_color_vocab,
+                qst_type_vocab_size,
+                ans_vocab_size,
+                word_embedding_size,
+                g_theta_layers,
+                f_phi_layers,
+                img_encoding_layers_parsed,
+                batch_size=batch_size,
+                question_type_dict=idx_to_qst_type,
+                base_learning_rate=base_learning_rate,
+                cnn_reg = cnn_reg,
+                reduced_height = reduced_height,
+                num_obj = num_obj
+            )
+
         elif model_type == 'base':
             import model_sort_of_clevr_base
-            model = model_sort_of_clevr_base.RelationalNetwork(next_batch, qst_color_vocab,
-                                                          qst_type_vocab_size,
-                                                          ans_vocab_size,
-                                                          word_embedding_size,
-                                                          g_theta_layers,
-                                                          f_phi_layers,
-                                                          img_encoding_layers_parsed,
-                                                          batch_size=batch_size,
-                                                 question_type_dict=idx_to_qst_type,
-                                                 base_learning_rate=base_learning_rate,
-                                                               cnn_reg = cnn_reg)
+            model = model_sort_of_clevr_base.RelationalNetwork(
+                next_batch,
+                qst_color_vocab,
+                qst_type_vocab_size,
+                ans_vocab_size,
+                word_embedding_size,
+                g_theta_layers,
+                f_phi_layers,
+                img_encoding_layers_parsed,
+                batch_size=batch_size,
+                question_type_dict=idx_to_qst_type,
+                base_learning_rate=base_learning_rate,
+                cnn_reg = cnn_reg
+            )
 
         save_interval = 1000
 
@@ -223,12 +236,16 @@ with tf.Graph().as_default():
                             run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
                             run_metadata = tf.RunMetadata()
 
-                            _, global_step, trn_loss_summary = sess.run([model.train_op,
-                                                                         model.global_step,
-                                                                         model.trn_loss_summary],
-                                                                        {model.is_training: True},
-                                                                        options=run_options,
-                                                                        run_metadata=run_metadata)
+                            fetch = [model.train_op,
+                                 model.global_step,
+                                 model.trn_loss_summary]
+
+                            _, global_step, trn_loss_summary = sess.run(
+                                fetch,
+                                {model.is_training: True},
+                                options=run_options,
+                                run_metadata=run_metadata)
+
                             summary_writer.add_summary(trn_loss_summary, epoch_num)
                             summary_writer.add_run_metadata(run_metadata, 'step_{}'.format(
                                 epoch_num),
@@ -246,8 +263,6 @@ with tf.Graph().as_default():
                     else:
                         _, global_step = sess.run([model.train_op, model.global_step],
                                                                     {model.is_training:True})
-
-
 
             except tf.errors.OutOfRangeError:
                 sess.run(model.increment_epoch_op)
