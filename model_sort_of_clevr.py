@@ -208,11 +208,11 @@ class RelationalNetwork():
             gate_logit = build_mlp(gate_concate, [64, 64, 1])
 
             #soft max
-            gate_logit = tf.reshape(gate_logit, [batch_size, -1])
-            gate = tf.nn.softmax(gate_logit, axis=1)
+            # gate_logit = tf.reshape(gate_logit, [batch_size, -1])
+            # gate = tf.nn.softmax(gate_logit, axis=1)
 
             #bernoulli
-            # gate = tf.nn.sigmoid(gate_logit)
+            gate = tf.nn.sigmoid(gate_logit)
 
             gate = tf.reshape(gate, [batch_size, reduced_height, reduced_height])
 
@@ -233,6 +233,8 @@ class RelationalNetwork():
 
             print('encoded flatten', encoded_img_flatten.shape)
             # [b, d*d, # feature]
+
+
 
             encoded_img_flatten = tf.transpose(encoded_img_flatten, (0, 2, 1)) # for lower triangle
             # computation # [b, # feature , d*d]
@@ -292,9 +294,17 @@ class RelationalNetwork():
             print('build g_theta')
 
             pair_output = build_mlp(encoded_img_qst_pair, self.g_theta_layers)
-            mask = tf.reshape(tf.matrix_band_part(tf.ones([num_obj, num_obj]), -1,
-                                                      0), [1, num_obj, num_obj, 1])
+            # mask = tf.reshape(tf.matrix_band_part(tf.ones([num_obj, num_obj]), -1,
+            #                                           0), [1, num_obj, num_obj, 1])
+            mask = tf.linalg.LinearOperatorLowerTriangular(
+                tf.ones([num_obj, num_obj]))
+            # for excluding diag objects
+            diag_minus_ones = tf.diag(-tf.ones([num_obj]))
+            mask = mask.to_dense() + diag_minus_ones
+            mask = tf.reshape(mask, [1, num_obj, num_obj, 1])
+
             pair_output_lower = tf.multiply(pair_output, mask)
+            self.pair_output_lower = pair_output_lower
             self.pair_output_lower_activation = tf.reduce_sum(tf.abs(pair_output_lower),
                                                               3, keep_dims=True)
 
