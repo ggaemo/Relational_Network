@@ -165,18 +165,14 @@ class RelationalNetwork():
 
             encoded_qst = tf.concat([qst_color_embed, qst_type_embed], axis=1)
 
-            encode_num_channels = self.encoding_layers[-1][0]
+            # encode_num_channels = self.encoding_layers[-1][0]
+            # encoded_qst = build_mlp(encoded_qst, [64, 64, encode_num_channels + 4])
+            # key_dim = int(encode_num_channels/2) +2
+            # val_dim = key_dim             #
+            # encoded_qst_key, encoded_qst_val = tf.split(encoded_qst, 2, axis=1)
 
-            encoded_qst = build_mlp(encoded_qst, [64, 64, encode_num_channels + 4])
-
-            tf.add_to_collection('encoded_qst', encoded_qst)
-
-            key_dim = int(encode_num_channels/2) +2
-            val_dim = key_dim
-
-            # encoded_qst = tf.reshape(encoded_qst, [batch_size, 1, 1, encode_num_channels + 4])
-            encoded_qst_key, encoded_qst_val = tf.split(encoded_qst, 2, axis=1)
             # last 2 added because of coordinate tensor
+            tf.add_to_collection('encoded_qst', encoded_qst)
 
 
         with tf.variable_scope('image_embedding'):
@@ -189,46 +185,53 @@ class RelationalNetwork():
 
             coord_tensor = build_coord_tensor(batch_size, reduced_height)
 
-            # encoded_img_coord = tf.concat([encoded_img, coord_tensor], axis=3)
+            encoded_img_coord = tf.concat([encoded_img, coord_tensor], axis=3)
 
-            enc_img_key, enc_img_val = tf.split(encoded_img, 2, axis=3)
+            # enc_img_key, enc_img_val = tf.split(encoded_img, 2, axis=3)
+            #
+            # enc_img_key_coord = tf.concat([enc_img_key, coord_tensor], axis=3)
+            # enc_img_val_coord = tf.concat([enc_img_val, coord_tensor], axis=3)
+            #
+            # encoded_qst_key = tf.reshape(encoded_qst_key, [batch_size, 1, 1,
+            #                                                key_dim])
 
-            enc_img_key_coord = tf.concat([enc_img_key, coord_tensor], axis=3)
-            enc_img_val_coord = tf.concat([enc_img_val, coord_tensor], axis=3)
+            # # gate_logit = tf.reduce_sum(tf.multiply(enc_img_key_coord, encoded_qst_key),
+            # #                            axis=3) / tf.sqrt(tf.cast(key_dim, tf.float32))
+            #
+            # encoded_qst_key = tf.tile(encoded_qst_key, [1, reduced_height,
+            #                                             reduced_height, 1])
+            # gate_concate = tf.concat([enc_img_key_coord, encoded_qst_key], axis=3)
+            # gate_logit = build_mlp(gate_concate, [64, 64, 1])
+            #
+            # #soft max
+            # # gate_logit = tf.reshape(gate_logit, [batch_size, -1])
+            # # gate = tf.nn.softmax(gate_logit, axis=1)
+            #
+            # #bernoulli
+            # gate = tf.nn.sigmoid(gate_logit)
+            #
+            # gate = tf.reshape(gate, [batch_size, reduced_height, reduced_height])
+            #
+            # gate = tf.expand_dims(gate, 3)
 
-            encoded_qst_key = tf.reshape(encoded_qst_key, [batch_size, 1, 1,
-                                                           key_dim])
-
-            # gate_logit = tf.reduce_sum(tf.multiply(enc_img_key_coord, encoded_qst_key),
-            #                            axis=3) / tf.sqrt(tf.cast(key_dim, tf.float32))
-
-            encoded_qst_key = tf.tile(encoded_qst_key, [1, reduced_height,
-                                                        reduced_height, 1])
-            gate_concate = tf.concat([enc_img_key_coord, encoded_qst_key], axis=3)
-            gate_logit = build_mlp(gate_concate, [64, 64, 1])
-
-            #soft max
-            # gate_logit = tf.reshape(gate_logit, [batch_size, -1])
-            # gate = tf.nn.softmax(gate_logit, axis=1)
-
-            #bernoulli
-            gate = tf.nn.sigmoid(gate_logit)
-
-            gate = tf.reshape(gate, [batch_size, reduced_height, reduced_height])
-
-            gate = tf.expand_dims(gate, 3)
-
+            gate = tf.zeros((batch_size, reduced_height, reduced_height, 1))
             self.gate = gate
+
 
             tf.add_to_collection('gate', gate)
 
-            encoded_img_coord = tf.multiply(gate, enc_img_val_coord)
+            # encoded_img_coord = tf.multiply(gate, enc_img_val_coord)
 
 
         with tf.variable_scope('image_object_pairing'):
             print('encoded img_coord', encoded_img_coord.shape)
+            # encoded_img_flatten = tf.reshape(encoded_img_coord, [batch_size, num_obj,
+            #                                                      val_dim])
+
+            encode_num_channels = self.encoding_layers[-1][0]
             encoded_img_flatten = tf.reshape(encoded_img_coord, [batch_size, num_obj,
-                                                                 val_dim])
+                                                                 encode_num_channels + 2])
+
             #coord num channel 2
 
             print('encoded flatten', encoded_img_flatten.shape)
@@ -258,16 +261,13 @@ class RelationalNetwork():
 
 
         with tf.variable_scope('img_qst_concat'):
-            # encoded_qst_expand = tf.reshape(encoded_qst,
-            #                                 [batch_size, word_embedding_size * 2, 1, 1])
+            encoded_qst_expand = tf.reshape(encoded_qst,
+                                            [batch_size, word_embedding_size * 2, 1, 1])
 
-            encoded_qst_expand = tf.reshape(encoded_qst_val,
-                                            [batch_size, val_dim, 1,
-                                             1])
+            # encoded_qst_expand = tf.reshape(encoded_qst_val,
+            #                                 [batch_size, val_dim, 1,
+            #                                  1])
 
-
-            # [b, 1,
-            #  rnn_hidden_dim]
             encoded_qst_tiled = tf.tile(encoded_qst_expand, [1, 1, num_obj, num_obj])
             encoded_qst_tiled = tf.matrix_band_part(encoded_qst_tiled, -1,
                                                     0, name='lower_matrix')  # lower
