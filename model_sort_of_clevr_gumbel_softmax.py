@@ -18,7 +18,8 @@ class RelationalNetwork():
         # self.ans_word = tf.placeholder(tf.string, shape=[None])
         # self.pred_word = tf.placeholder(tf.string, shape=[None])
         self.img_pl = tf.placeholder(tf.float32, shape=[None, 75 + 20, 75, 3])
-
+        self.global_step = tf.Variable(0, trainable=False, name='global_step')
+        self.epoch = tf.Variable(0, trainable=False, name='epoch')
 
 
 
@@ -46,7 +47,7 @@ class RelationalNetwork():
             reduced_height = kwargs['reduced_height']
 
         self.g_theta_activation = tf.placeholder(tf.float32,
-                                                 shape=[None, num_obj, num_obj, 1])
+                                                 shape=[None, reduced_height, reduced_height, 1])
         self.gate_pl = tf.placeholder(tf.float32,
                                       shape=[None, reduced_height, reduced_height, 1])
 
@@ -144,9 +145,7 @@ class RelationalNetwork():
         tf.add_to_collection('qst_color', qst_color)
         tf.add_to_collection('qst_type', qst_type)
 
-
         # qst_color, qst_type = tf.split(qst, 2, axis=1)
-
 
         _, height, width, num_input_channel = img.get_shape().as_list()
         batch_size = tf.shape(img)[0]
@@ -187,134 +186,80 @@ class RelationalNetwork():
 
             encoded_img_coord = tf.concat([encoded_img, coord_tensor], axis=3)
 
-            # enc_img_key, enc_img_val = tf.split(encoded_img, 2, axis=3)
-            #
-            # enc_img_key_coord = tf.concat([enc_img_key, coord_tensor], axis=3)
-            # enc_img_val_coord = tf.concat([enc_img_val, coord_tensor], axis=3)
-            #
-            # encoded_qst_key = tf.reshape(encoded_qst_key, [batch_size, 1, 1,
-            #                                                key_dim])
 
-            # # gate_logit = tf.reduce_sum(tf.multiply(enc_img_key_coord, encoded_qst_key),
-            # #                            axis=3) / tf.sqrt(tf.cast(key_dim, tf.float32))
-            #
-            # encoded_qst_key = tf.tile(encoded_qst_key, [1, reduced_height,
+            # qst_color_tiled = tf.reshape(qst_color_embed, [-1, 1, 1, word_embedding_size])
+            # qst_color_tiled = tf.tile(qst_color_tiled, [1, reduced_height,
             #                                             reduced_height, 1])
-            # gate_concate = tf.concat([enc_img_key_coord, encoded_qst_key], axis=3)
-            # gate_logit = build_mlp(gate_concate, [64, 64, 1])
             #
-            # #soft max
-            # # gate_logit = tf.reshape(gate_logit, [batch_size, -1])
-            # # gate = tf.nn.softmax(gate_logit, axis=1)
+            # img_color_concat = tf.concat([qst_color_tiled, encoded_img_coord], axis=3)
             #
-            # #bernoulli
-            # gate = tf.nn.sigmoid(gate_logit)
+            # gate = build_mlp(img_color_concat, [64, 32, 1])
             #
-            # gate = tf.reshape(gate, [batch_size, reduced_height, reduced_height])
+            # gate_logit = tf.reshape(gate, [batch_size, num_obj])
             #
-            # gate = tf.expand_dims(gate, 3)
+            # gate_softmax = tf.reshape(tf.nn.softmax(gate_logit), (batch_size,
+            #                                                       reduced_height,
+            #                                                       reduced_height, 1))
+            #
+            # tau = tf.minimum(tf.train.exponential_decay(1.0, global_step=self.global_step,
+            #                                  decay_steps=1000,
+            #                                  decay_rate=0.95), 0.5)
+            # dist = tf.contrib.distributions.RelaxedOneHotCategorical(temperature=tau,
+            #                                                          logits=gate_logit)
+            #
+            # sampled_obj_prob = dist.sample()
+            # source_obj_idx = tf.argmax(sampled_obj_prob, axis=1, output_type=tf.int32)
+            #
+            # source_obj_idx = tf.stack([tf.range(batch_size), source_obj_idx])
+            # source_obj_idx = tf.transpose(source_obj_idx, [1, 0])
+            # self.gate = gate_softmax
 
-            gate = tf.zeros((batch_size, reduced_height, reduced_height, 1))
-            self.gate = gate
+            self.gate =tf.zeros((batch_size, reduced_height, reduced_height, 1))
 
 
-            tf.add_to_collection('gate', gate)
+            tf.add_to_collection('gate', self.gate)
 
             # encoded_img_coord = tf.multiply(gate, enc_img_val_coord)
 
 
         with tf.variable_scope('image_object_pairing'):
             print('encoded img_coord', encoded_img_coord.shape)
-            # encoded_img_flatten = tf.reshape(encoded_img_coord, [batch_size, num_obj,
-            #                                                      val_dim])
+            # encode_num_channels = self.encoding_layers[-1][0]
+            # encoded_img_coord_flatten = tf.reshape(encoded_img_coord, [batch_size, -1,
+            #                                                         encode_num_channels + 2])
+            # source_obj = tf.gather_nd(encoded_img_coord_flatten, source_obj_idx)
+            # source_obj = tf.reshape(source_obj, [batch_size, 1, 1, encode_num_channels+2])
+            #
+            # source_obj_tiled = tf.tile(source_obj, [1, reduced_height, reduced_height, 1])
+            source_obj_tiled = tf.zeros_like(encoded_img_coord)
 
-            encode_num_channels = self.encoding_layers[-1][0]
-            encoded_img_flatten = tf.reshape(encoded_img_coord, [batch_size, num_obj,
-                                                                 encode_num_channels + 2])
-
-            #coord num channel 2
-
-            print('encoded flatten', encoded_img_flatten.shape)
-            # [b, d*d, # feature]
-
-
-
-            encoded_img_flatten = tf.transpose(encoded_img_flatten, (0, 2, 1)) # for lower triangle
-            # computation # [b, # feature , d*d]
-            encoded_img_flatten_1 = tf.expand_dims(encoded_img_flatten, axis = 3)
-            encoded_img_flatten_1 = tf.tile(encoded_img_flatten_1, [1, 1, 1, num_obj])
-
-
-            encoded_img_flatten_1 = tf.matrix_band_part(encoded_img_flatten_1, -1, 0) #lower#
-            #  triangle
-
-            encoded_img_flatten_2 = tf.expand_dims(encoded_img_flatten, axis=2)
-            encoded_img_flatten_2 = tf.tile(encoded_img_flatten_2, [1, 1, num_obj, 1])
-
-
-            encoded_img_flatten_2 = tf.matrix_band_part(encoded_img_flatten_2, -1, 0)  # lower triangle
-
-
-            encoded_img_pair = tf.concat([encoded_img_flatten_1, encoded_img_flatten_2],
-                                             axis=1)
-            # [b, # channel, d*d, d*d]
-
+            encoded_img_pair = tf.concat([encoded_img_coord, source_obj_tiled], axis=3)
+            # encoded_img_pair = encoded_img_coord
 
         with tf.variable_scope('img_qst_concat'):
             encoded_qst_expand = tf.reshape(encoded_qst,
-                                            [batch_size, word_embedding_size * 2, 1, 1])
+                                            [batch_size, 1, 1, word_embedding_size * 2])
 
-            # encoded_qst_expand = tf.reshape(encoded_qst_val,
-            #                                 [batch_size, val_dim, 1,
-            #                                  1])
 
-            encoded_qst_tiled = tf.tile(encoded_qst_expand, [1, 1, num_obj, num_obj])
-            encoded_qst_tiled = tf.matrix_band_part(encoded_qst_tiled, -1,
-                                                    0, name='lower_matrix')  # lower
-            # triangle
+            encoded_qst_tiled = tf.tile(encoded_qst_expand, [1, reduced_height,
+                                                             reduced_height, 1])
 
             print('encoded tiled', encoded_qst_tiled.shape)
 
-            encoded_img_qst_pair = tf.concat([encoded_img_pair, encoded_qst_tiled], axis=1)
-
-            # [b, # channel + #rnn dim, d*d, d*d]
-
-        # tf.add_to_collection('assert', tf.assert_equal(encoded_img_qst_pair, tf.matrix_band_part(
-        #     encoded_img_qst_pair,-1, 0), message='qst lower'))
-
-        encoded_img_qst_pair = tf.transpose(encoded_img_qst_pair, [0, 2, 3, 1])
-
-        # [b, d*d, d*d,  # channel + # rnn dim]
-
-        #TODO encoded_img_pst_pair includes self pairs (a_i, a_i) as well as (a_i, a_j)
-        #TODO check if lower triangle operation is necessary for computational efficiency
-
+            encoded_img_qst_pair = tf.concat([encoded_img_pair, encoded_qst_tiled], axis=3)
 
         with tf.variable_scope('g_theta'):
             print('build g_theta')
 
             pair_output = build_mlp(encoded_img_qst_pair, self.g_theta_layers)
-            # mask = tf.reshape(tf.matrix_band_part(tf.ones([num_obj, num_obj]), -1,
-            #                                           0), [1, num_obj, num_obj, 1])
-            mask = tf.linalg.LinearOperatorLowerTriangular(
-                tf.ones([num_obj, num_obj]))
 
-            # for excluding diag objects
-            # diag_minus_ones = tf.diag(-tf.ones([num_obj]))
-            # mask = mask.to_dense() + diag_minus_ones
-            # mask = tf.reshape(mask, [1, num_obj, num_obj, 1])
 
-            mask = tf.reshape(mask.to_dense(), [1, num_obj, num_obj, 1])
-
-            pair_output_lower = tf.multiply(pair_output, mask)
-            self.pair_output_lower = pair_output_lower
-            self.pair_output_lower_activation = tf.reduce_sum(tf.abs(pair_output_lower),
-                                                              3, keep_dims=True)
-
-            tf.add_to_collection('g_theta', pair_output_lower)
+            self.pair_output_lower_activation = tf.reduce_sum(tf.abs(pair_output), 3,
+                                                              keep_dims=True)
+            tf.add_to_collection('g_theta', pair_output)
 
             # pair_output_lower = pair_output
-            pair_output_sum = tf.reduce_sum(pair_output_lower, (1, 2))
+            pair_output_sum = tf.reduce_sum(pair_output, (1, 2))
 
             # self.a = tf.assert_equal(pair_output_lower, pair_output,
             #                                                message='lower_pair')
@@ -349,8 +294,7 @@ class RelationalNetwork():
 
 
         with tf.variable_scope('learning_rate'):
-            self.global_step = tf.Variable(0, trainable=False, name='global_step')
-            self.epoch = tf.Variable(0, trainable=False, name='epoch')
+
             self.increment_epoch_op = tf.assign(self.epoch, self.epoch + 1)
             # https://github.com/tensorflow/tensorflow/issues/19568 update_ops crashses
             # wehn rnn length is 32

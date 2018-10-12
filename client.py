@@ -17,7 +17,7 @@ parser.add_argument('-data_option', type=str)
 # parser.add_argument('-test_data_size', type=int, default=149991)
 # parser.add_argument('-test_batch_size', type=int, default=128, help='second biggest '
 #                                                                     'denominator')
-parser.add_argument('-num_epochs', type=int, default=100)
+parser.add_argument('-num_epochs', type=int, default=500)
 parser.add_argument('-word_embedding_size', type=int)
 parser.add_argument('-rnn_hidden_dim', type=int)
 parser.add_argument('-g_theta_layers', type=int, nargs='+')
@@ -167,7 +167,7 @@ with tf.Graph().as_default():
             tf.add_to_collection('train_init_op', trn_init_op)
 
         if model_type == 'rn':
-            import model_sort_of_clevr
+            import model_sort_of_clevr_gumbel_softmax as model_sort_of_clevr
 
             model = model_sort_of_clevr.RelationalNetwork(
                 next_batch,
