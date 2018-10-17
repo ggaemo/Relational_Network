@@ -120,6 +120,8 @@ def inputs(batch_size, data_option, num_parallel_calls=10):
         image = tf.cast(image, tf.float32)
         image = (image - 127.5) / 127.5
 
+        # image = (image + 1.0) / 2.0
+
         question_color = tf.cast(parsed['question_color'], tf.int32)
         question_type = tf.cast(parsed['question_type'], tf.int32)
         question_subtype = tf.cast(parsed['question_subtype'], tf.int32)
@@ -129,13 +131,18 @@ def inputs(batch_size, data_option, num_parallel_calls=10):
         return {'img': image, 'qst_c': question_color, 'qst_type': question_type,
                 'qst_subtype': question_subtype, 'ans': answer}
 
-    def make_dataset(file_list):
+    def make_dataset(file_list, data_type):
         dataset = tf.data.TFRecordDataset(file_list)
+
+
         dataset = dataset.map(decode, num_parallel_calls=num_parallel_calls)
         # dataset = dataset.filter(lambda x: tf.reshape(tf.less(x['qst_len'], 10), []))
-        dataset = dataset.prefetch(batch_size * 2)
-        dataset = dataset.shuffle(buffer_size = batch_size * 10)
+
+        if data_type == 'train':
+            dataset = dataset.shuffle(buffer_size = batch_size * 10)
         dataset = dataset.batch(batch_size)
+
+        dataset = dataset.prefetch(batch_size * 10)
 
         return dataset
 
@@ -151,9 +158,9 @@ def inputs(batch_size, data_option, num_parallel_calls=10):
         # files_path = [dir_path+x for x in os.listdir(dir_path)]
 
         if data_type =='train':
-            trn_dataset = make_dataset(file_path)
+            trn_dataset = make_dataset(file_path, data_type)
         elif data_type =='val':
-            test_dataset = make_dataset(file_path)
+            test_dataset = make_dataset(file_path, data_type)
 
     iterator = tf.data.Iterator.from_structure(trn_dataset.output_types, trn_dataset.output_shapes)
 
@@ -162,7 +169,11 @@ def inputs(batch_size, data_option, num_parallel_calls=10):
     trn_init_op = iterator.make_initializer(trn_dataset)
     test_init_op = iterator.make_initializer(test_dataset)
 
-    return next_batch, trn_init_op, test_init_op
+    with open('data/Sort-of-CLEVR/raw_data/{}/ans_color_qst_dict.pickle'.format(data_option),
+              'rb') as f:
+        answer_dict, color_dict, question_type_dict = pickle.load(f)
+
+    return next_batch, trn_init_op, test_init_op, answer_dict, color_dict, question_type_dict
 
 
 

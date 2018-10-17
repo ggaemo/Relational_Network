@@ -46,6 +46,8 @@ class RelationalNetwork():
         if 'reduced_height' in kwargs:
             reduced_height = kwargs['reduced_height']
 
+        gumbel_layers = kwargs['gumbel_layers']
+
         self.g_theta_activation = tf.placeholder(tf.float32,
                                                  shape=[None, reduced_height, reduced_height, 1])
         self.gate_pl = tf.placeholder(tf.float32,
@@ -187,34 +189,41 @@ class RelationalNetwork():
             encoded_img_coord = tf.concat([encoded_img, coord_tensor], axis=3)
 
 
-            # qst_color_tiled = tf.reshape(qst_color_embed, [-1, 1, 1, word_embedding_size])
-            # qst_color_tiled = tf.tile(qst_color_tiled, [1, reduced_height,
-            #                                             reduced_height, 1])
-            #
-            # img_color_concat = tf.concat([qst_color_tiled, encoded_img_coord], axis=3)
-            #
-            # gate = build_mlp(img_color_concat, [64, 32, 1])
-            #
-            # gate_logit = tf.reshape(gate, [batch_size, num_obj])
-            #
-            # gate_softmax = tf.reshape(tf.nn.softmax(gate_logit), (batch_size,
-            #                                                       reduced_height,
-            #                                                       reduced_height, 1))
-            #
-            # tau = tf.minimum(tf.train.exponential_decay(1.0, global_step=self.global_step,
-            #                                  decay_steps=1000,
-            #                                  decay_rate=0.95), 0.5)
-            # dist = tf.contrib.distributions.RelaxedOneHotCategorical(temperature=tau,
-            #                                                          logits=gate_logit)
-            #
-            # sampled_obj_prob = dist.sample()
-            # source_obj_idx = tf.argmax(sampled_obj_prob, axis=1, output_type=tf.int32)
-            #
-            # source_obj_idx = tf.stack([tf.range(batch_size), source_obj_idx])
-            # source_obj_idx = tf.transpose(source_obj_idx, [1, 0])
-            # self.gate = gate_softmax
+            qst_color_tiled = tf.reshape(qst_color_embed, [-1, 1, 1, word_embedding_size])
+            qst_color_tiled = tf.tile(qst_color_tiled, [1, reduced_height,
+                                                        reduced_height, 1])
 
-            self.gate =tf.zeros((batch_size, reduced_height, reduced_height, 1))
+        with tf.variable_scope('gumbel_softmax'):
+
+            img_color_concat = tf.concat([qst_color_tiled, encoded_img_coord], axis=3)
+
+            gate = build_mlp(img_color_concat, gumbel_layers)
+
+            gate_logit = tf.layers.dense(gate, 1, use_bias=False) #linear
+
+            gate_logit = tf.reshape(gate_logit, [batch_size, num_obj])
+
+            gate_softmax = tf.reshape(tf.nn.softmax(gate_logit), (batch_size,
+                                                                  reduced_height,
+                                                                  reduced_height, 1))
+
+            tau = tf.minimum(tf.train.exponential_decay(1.0, global_step=self.global_step,
+                                             decay_steps=1000,
+                                             decay_rate=0.95), 0.5)
+            dist = tf.contrib.distributions.RelaxedOneHotCategorical(temperature=tau,
+                                                                     logits=gate_logit)
+
+            sampled_obj_prob = dist.sample()
+
+            source_obj_idx = tf.argmax(sampled_obj_prob, axis=1, output_type=tf.int32)
+
+            source_obj_onehot = tf.one_hot(source_obj_idx, depth=num_obj)
+
+            source_obj_onehot = tf.multiply(sampled_obj_prob, source_obj_onehot)
+
+            self.gate = gate_softmax
+
+            # self.gate =tf.zeros((batch_size, reduced_height, reduced_height, 1))
 
 
             tf.add_to_collection('gate', self.gate)
@@ -224,17 +233,35 @@ class RelationalNetwork():
 
         with tf.variable_scope('image_object_pairing'):
             print('encoded img_coord', encoded_img_coord.shape)
-            # encode_num_channels = self.encoding_layers[-1][0]
+
+            source_obj_onehot_grid = tf.reshape(source_obj_onehot,
+                                                (batch_size, reduced_height,
+                                                 reduced_height, 1))
+            source_obj = tf.reduce_sum(tf.multiply(encoded_img_coord,
+                                                   source_obj_onehot_grid), (1, 2))
+
+            encode_num_channels = self.encoding_layers[-1][0]
+            source_obj = tf.reshape(source_obj,
+                                    [batch_size, 1, 1, encode_num_channels + 2])
+
+            source_obj_tiled = tf.tile(source_obj, [1, reduced_height, reduced_height, 1])
+
+            encoded_img_pair = tf.concat([encoded_img_coord, source_obj_tiled], axis=3)
+
+            self.get = [source_obj, encoded_img_coord, source_obj_idx]
+
             # encoded_img_coord_flatten = tf.reshape(encoded_img_coord, [batch_size, -1,
             #                                                         encode_num_channels + 2])
             # source_obj = tf.gather_nd(encoded_img_coord_flatten, source_obj_idx)
             # source_obj = tf.reshape(source_obj, [batch_size, 1, 1, encode_num_channels+2])
             #
             # source_obj_tiled = tf.tile(source_obj, [1, reduced_height, reduced_height, 1])
-            source_obj_tiled = tf.zeros_like(encoded_img_coord)
+            # source_obj_tiled = tf.zeros_like(encoded_img_coord)
 
-            encoded_img_pair = tf.concat([encoded_img_coord, source_obj_tiled], axis=3)
-            # encoded_img_pair = encoded_img_coord
+            # encoded_img_pair = tf.concat([encoded_img_coord, source_obj_tiled], axis=3)
+
+            # encoded_img_pair = tf.concat([encoded_img_coord, source_obj_tiled], axis=3)
+
 
         with tf.variable_scope('img_qst_concat'):
             encoded_qst_expand = tf.reshape(encoded_qst,
@@ -254,8 +281,8 @@ class RelationalNetwork():
             pair_output = build_mlp(encoded_img_qst_pair, self.g_theta_layers)
 
 
-            self.pair_output_lower_activation = tf.reduce_sum(tf.abs(pair_output), 3,
-                                                              keep_dims=True)
+            # self.pair_output_lower_activation = tf.reduce_sum(tf.abs(pair_output), 3,
+            #                                                   keep_dims=True)
             tf.add_to_collection('g_theta', pair_output)
 
             # pair_output_lower = pair_output

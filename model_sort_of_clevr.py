@@ -214,11 +214,11 @@ class RelationalNetwork():
             #
             # gate = tf.expand_dims(gate, 3)
 
-            gate = tf.zeros((batch_size, reduced_height, reduced_height, 1))
-            self.gate = gate
-
-
-            tf.add_to_collection('gate', gate)
+            # gate = tf.zeros((batch_size, reduced_height, reduced_height, 1))
+            # self.gate = gate
+            #
+            #
+            # tf.add_to_collection('gate', gate)
 
             # encoded_img_coord = tf.multiply(gate, enc_img_val_coord)
 

@@ -27,6 +27,9 @@ parser.add_argument('-cnn_reg', type=str, default='bn')
 parser.add_argument('-option', type=str, default='org')
 parser.add_argument('-run_meta', action='store_true', default=False)
 parser.add_argument('-restore', action='store_true', default=False)
+
+
+parser.add_argument('-gumbel_layers', type=int, nargs='+')
 args = parser.parse_args()
 
 
@@ -37,14 +40,16 @@ num_epochs = args.num_epochs
 word_embedding_size = args.word_embedding_size
 rnn_hidden_dim = args.rnn_hidden_dim
 img_encoding_layers = args.img_encoding_layers
-g_theta_layers = args.g_theta_layers # [512, 512, 512]
-f_phi_layers = args.f_phi_layers # [512, 1024]
+g_theta_layers = args.g_theta_layers
+f_phi_layers = args.f_phi_layers
 cnn_reg = args.cnn_reg
 option = args.option
 run_meta = args.run_meta
 restore = args.restore
 base_learning_rate = args.learning_rate
 data_option = args.data_option
+
+gumbel_layers = args.gumbel_layers
 
 img_encoding_layers_parsed = [img_encoding_layers[i:i+3] for i in
                               np.arange(len(img_encoding_layers), step =3)]
@@ -53,6 +58,8 @@ def layer_config_to_str(layer_config):
     return '-'.join([str(x) for x in layer_config])
 
 if data == 's_CLEVR':
+    if gumbel_layers:
+        option = '{}_gumbel_{}'.format(option, layer_config_to_str(gumbel_layers))
     dir_format = 'model/{}/{}_bs-{}_we-{}_g-{}_f-{}_cnn-{}_reg-{}_{}_data-{}/'
     model_dir = dir_format.format(
         data,
@@ -61,11 +68,15 @@ if data == 's_CLEVR':
         word_embedding_size,
         layer_config_to_str(g_theta_layers),
         layer_config_to_str(f_phi_layers),
-        layer_config_to_str(img_encoding_layers),
+        layer_config_to_str([x[0] for x in img_encoding_layers_parsed]),
         cnn_reg,
         option,
         data_option
     )
+
+
+
+
 
 elif data == 'CLEVR':
     dir_format = 'model/{}/{}_bs-{}_we-{}_rnn-{}_g-{}_f-{}_cnn-{}_{}/'
@@ -107,39 +118,63 @@ with tf.Graph().as_default():
 
 
     if data == 'CLEVR':
-        import model
+
         import inputs
 
         with open('data/CLEVR_v1.0/processed_data/question_answer_dict.pkl', 'rb') as f:
-            word_to_idx, idx_to_word, answer_word_to_idx, answer_idx_to_word = pickle.load(f)
+            word_to_idx, idx_to_word, answer_word_to_idx, answer_idx_to_word = pickle.load(
+                f)
 
             idx_to_word[0] = '_'
             qst_vocab_size = len(idx_to_word)
             idx_to_word[qst_vocab_size] = 'START'
-            idx_to_word[qst_vocab_size+1] = 'END'
+            idx_to_word[qst_vocab_size + 1] = 'END'
 
             word_to_idx['_'] = 0
             word_to_idx['START'] = qst_vocab_size
             word_to_idx['END'] = qst_vocab_size + 1
 
-
             qst_vocab_size = len(word_to_idx)
             ans_vocab_size = len(answer_word_to_idx)
-
 
             print('START AND END TOKEN ADDED TO QUESTION VOCAB')
 
         with tf.variable_scope('inputs'):
             next_batch, trn_init_op, test_init_op = inputs.inputs(batch_size)
 
-        with tf.variable_scope('Model', reuse=None):
+        height = 128
+        reduced_height = np.ceil(height / (2 ** len(img_encoding_layers_parsed)))
+        num_obj = reduced_height ** 2
 
-            model = model.RelationalNetwork(next_batch, qst_vocab_size, ans_vocab_size,
-                                            word_embedding_size, g_theta_layers,
-                                            f_phi_layers,
-                                            img_encoding_layers_parsed,
-                                            rnn_hidden_dim, batch_size=batch_size,
-                                            base_learning_rate=base_learning_rate)
+        if model_type =='rn':
+            import model
+
+            with tf.variable_scope('Model', reuse=None):
+
+                model = model.RelationalNetwork(next_batch, qst_vocab_size, ans_vocab_size,
+                                                word_embedding_size, g_theta_layers,
+                                                f_phi_layers,
+                                                img_encoding_layers_parsed,
+                                                rnn_hidden_dim, batch_size=batch_size,
+                                                base_learning_rate=base_learning_rate)
+        elif model_type == 'base':
+            import model_base
+
+            with tf.variable_scope('Model', reuse=None):
+
+                model = model_base.RelationalNetwork(next_batch, qst_vocab_size, ans_vocab_size,
+                                                word_embedding_size, g_theta_layers,
+                                                f_phi_layers,
+                                                img_encoding_layers_parsed,
+                                                rnn_hidden_dim, batch_size=batch_size,
+                                                base_learning_rate=base_learning_rate,
+                                                cnn_reg = cnn_reg,
+                                                     reduced_height=reduced_height)
+
+
+
+
+
 
         save_interval = 3000
 
@@ -149,25 +184,29 @@ with tf.Graph().as_default():
         import sort_of_clevr_generator_2
 
         # import vqa_util
-        idx_to_qst_type = sort_of_clevr_generator_2.question_type_dict
-        idx_to_ans = sort_of_clevr_generator_2.answer_dict
-        idx_to_color = sort_of_clevr_generator_2.color_dict
 
-        qst_color_vocab = len(idx_to_color)
-        qst_type_vocab_size = len(idx_to_qst_type)
-        ans_vocab_size = len(idx_to_ans)
+
 
         height = 75
         reduced_height = np.ceil(height / (2 ** len(img_encoding_layers_parsed)))
         num_obj = reduced_height ** 2
 
         with tf.variable_scope('inputs'):
-            next_batch, trn_init_op, test_init_op = inputs.inputs(batch_size, data_option)
+            next_batch, trn_init_op, test_init_op, idx_to_ans, idx_to_color, idx_to_qst_type= \
+                inputs.inputs(
+                batch_size, data_option)
             tf.add_to_collection('test_init_op', test_init_op)
             tf.add_to_collection('train_init_op', trn_init_op)
 
+
+        qst_color_vocab = len(idx_to_color)
+        qst_type_vocab_size = len(idx_to_qst_type)
+        ans_vocab_size = len(idx_to_ans)
+
+
         if model_type == 'rn':
-            import model_sort_of_clevr_gumbel_softmax as model_sort_of_clevr
+
+            import model_sort_of_clevr
 
             model = model_sort_of_clevr.RelationalNetwork(
                 next_batch,
@@ -200,7 +239,28 @@ with tf.Graph().as_default():
                 batch_size=batch_size,
                 question_type_dict=idx_to_qst_type,
                 base_learning_rate=base_learning_rate,
-                cnn_reg = cnn_reg
+                cnn_reg = cnn_reg,
+                reduced_height=reduced_height
+            )
+        elif model_type == 'gumbel':
+            import model_sort_of_clevr_gumbel_softmax
+
+            model = model_sort_of_clevr_gumbel_softmax.RelationalNetwork(
+                next_batch,
+                qst_color_vocab,
+                qst_type_vocab_size,
+                ans_vocab_size,
+                word_embedding_size,
+                g_theta_layers,
+                f_phi_layers,
+                img_encoding_layers_parsed,
+                batch_size=batch_size,
+                question_type_dict=idx_to_qst_type,
+                base_learning_rate=base_learning_rate,
+                cnn_reg=cnn_reg,
+                reduced_height=reduced_height,
+                num_obj=num_obj,
+                gumbel_layers=gumbel_layers
             )
 
         save_interval = 1000
@@ -227,7 +287,6 @@ with tf.Graph().as_default():
             sess.run(trn_init_op)
             sess.run(tf.local_variables_initializer())
             try:
-
                 while True:
 
                     if run_meta:
@@ -250,8 +309,6 @@ with tf.Graph().as_default():
                             summary_writer.add_run_metadata(run_metadata, 'step_{}'.format(
                                 epoch_num),
                                                             epoch_num)
-
-
 
                     if global_step % save_interval == 0:
                         _, global_step, trn_loss_summary = sess.run([model.train_op,
@@ -281,56 +338,71 @@ with tf.Graph().as_default():
                     print('test_start')
                     tmp_step = 0
 
-                    _, img, pred, ans, qst, activ, gate = sess.run([
-                        model.summary_update_ops, model.img, model.prediction,
-                        model.ans, model.qst, model.pair_output_lower_activation,
-                    model.gate],
-                                                   feed_dict={model.is_training:True})
-                    sample_num = 10
-                    img = img[:sample_num]
-                    pred = pred[:sample_num]
-                    ans = ans[:sample_num]
-                    qst = qst[:sample_num]
-                    activ = activ[:sample_num]
-                    gate = gate[:sample_num]
-
-                    if data == 'CLEVR':
-
-                        ans = [answer_idx_to_word[x] for x in np.squeeze(ans)]
-                        qst = [' '.join([idx_to_word[x] for x in row]) for row in qst]
-                        pred = [answer_idx_to_word[x] for x in np.squeeze(pred)]
-
-                    elif data =='s_CLEVR':
-                        img = np.pad(img, [(0, 0), (0, 20), (0, 0), (0, 0)],
-                                            mode='constant', constant_values=(1, 1))
-                        ans = [idx_to_ans[x] for x in ans]
-                        qst = ['{}_{}'.format(idx_to_color[x], idx_to_qst_type[y])
-                               for x, y in qst]
-                        pred = [idx_to_ans[x] for x in pred]
-
-                        print(ans)
-                        print(pred)
-
-                        for i in range(sample_num):
-                            cv2.line(img[i], (37, 0), (37, 75), (0, 0, 0), 1)
-                            cv2.line(img[i], (0, 37), (75, 37), (0, 0, 0), 1)
-                            cv2.line(img[i], (0, 75), (75, 75), (0, 0, 0), 1)
-                            cv2.putText(img[i], '{} {} {}'.format(qst[i], ans[i], pred[i]),
-                                        (2, 90),
-                                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0))
-
-                    summary = sess.run(model.summary_additional, {model.img_pl:img,
-                                                                  model.g_theta_activation:activ,
-                                                                  model.gate_pl:gate})
-                    summary_writer.add_summary(summary, global_step=epoch_num)
+                    # _, img, pred, ans, qst, = sess.run([
+                    #     model.summary_update_ops, model.img, model.prediction,
+                    #     model.ans, model.qst],
+                    #                                feed_dict={model.is_training:True})
+                    # sample_num = 10
+                    # img = img[:sample_num]
+                    # pred = pred[:sample_num]
+                    # ans = ans[:sample_num]
+                    # qst = qst[:sample_num]
+                    #
+                    # if data == 'CLEVR':
+                    #
+                    #     ans = [answer_idx_to_word[x] for x in np.squeeze(ans)]
+                    #     qst = [' '.join([idx_to_word[x] for x in row]) for row in qst]
+                    #     pred = [answer_idx_to_word[x] for x in np.squeeze(pred)]
+                    #
+                    #     summary = sess.run(model.summary_additional,
+                    #                        {model.img_pl: img,
+                    #                         model.qst_word:qst,
+                    #                         model.ans_word:ans,
+                    #                         model.pred_word:pred})
+                    #
+                    # elif data =='s_CLEVR':
+                    #
+                    #     _, img, pred, ans, qst, activ, gate = sess.run([
+                    #         model.summary_update_ops, model.img, model.prediction,
+                    #         model.ans, model.qst, model.pair_output_lower_activation,
+                    #         model.gate],
+                    #         feed_dict={model.is_training: True})
+                    #     sample_num = 10
+                    #     img = img[:sample_num]
+                    #     pred = pred[:sample_num]
+                    #     ans = ans[:sample_num]
+                    #     qst = qst[:sample_num]
+                    #     activ = activ[:sample_num]
+                    #     gate = gate[:sample_num]
+                    #
+                    #     img = np.pad(img, [(0, 0), (0, 20), (0, 0), (0, 0)],
+                    #                         mode='constant', constant_values=(1, 1))
+                    #     ans = [idx_to_ans[x] for x in ans]
+                    #     qst = ['{}_{}'.format(idx_to_color[x], idx_to_qst_type[y])
+                    #            for x, y in qst]
+                    #     pred = [idx_to_ans[x] for x in pred]
+                    #
+                    #     print(ans)
+                    #     print(pred)
+                    #
+                    #     for i in range(sample_num):
+                    #         cv2.line(img[i], (37, 0), (37, 75), (0, 0, 0), 1)
+                    #         cv2.line(img[i], (0, 37), (75, 37), (0, 0, 0), 1)
+                    #         cv2.line(img[i], (0, 75), (75, 75), (0, 0, 0), 1)
+                    #         cv2.putText(img[i], '{} {} {}'.format(qst[i], ans[i], pred[i]),
+                    #                     (2, 90),
+                    #                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0))
+                    #
+                    #     summary = sess.run(model.summary_additional, {model.img_pl:img,
+                    #                                                   model.g_theta_activation:activ,
+                    #                                                   model.gate_pl:gate})
+                    # summary_writer.add_summary(summary, global_step=epoch_num)
 
                     while True:
                         if tmp_step % save_interval == 0:
                             _, test_loss_summary = sess.run([model.summary_update_ops,
                                                  model.test_loss_summary],
-                                                                    {
-                                                                        model.is_training:False})
-                            print('accuracy batch test', sess.run(model.accuracy))
+                                                                    {model.is_training:False})
                             summary_writer.add_summary(test_loss_summary, global_step=epoch_num)
                         else:
                             sess.run(model.summary_update_ops, {model.is_training:False})

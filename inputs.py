@@ -146,7 +146,7 @@ def make_seq_tf_record_file(data_type, qa_data):
     else:
         print('tfrecord already made')
 
-def inputs(batch_size, num_parallel_calls=10):
+def inputs(batch_size, num_parallel_calls=20):
 
     def decode(serialized_example):
         """Parses an image and label from the given `serialized_example`."""
@@ -163,6 +163,17 @@ def inputs(batch_size, num_parallel_calls=10):
 
         image = tf.image.resize_images(image, (128, 128), method=1) # nearest neighbor
 
+        paddings = tf.constant([[1, 8], [2, 8], [3, 0]])
+
+        image = tf.pad(image, paddings)
+
+        image = tf.random_crop(image, [128, 128, 3])
+
+        # angles = tf.random_uniform((batch_size,), minval=-0.05, maxval=0.05)
+        # image = tf.contrib.image.rotate(image, angles)
+
+
+
         image = tf.cast(image, tf.float32)
         image = (image - 127.5) / 127.5
 
@@ -176,16 +187,25 @@ def inputs(batch_size, num_parallel_calls=10):
         return {'img': image, 'qst': question, 'ans': answer, 'qst_len':question_len}
 
     def make_dataset(file_list):
-        dataset = tf.data.TFRecordDataset(file_list)
+        dataset = tf.data.TFRecordDataset.list_files(file_list)
+
+        #Preprocesses 10 files concurrently and interleaves records from each file.
+        dataset = dataset.interleave(
+            tf.data.TFRecordDataset,
+            cycle_length=10,
+            block_length=1)
+
         dataset = dataset.map(decode, num_parallel_calls=num_parallel_calls)
         # dataset = dataset.filter(lambda x: tf.reshape(tf.less(x['qst_len'], 10), []))
-        dataset = dataset.prefetch(batch_size * 2)
+
         dataset = dataset.shuffle(buffer_size = batch_size * 10)
         dataset = dataset.padded_batch(batch_size,
                                        padded_shapes={'img': tf.TensorShape([None, None,3                                     ]),
                                                       'ans' : 1,
                                        'qst':tf.TensorShape([None]),
                                                       'qst_len':1})
+
+        dataset = dataset.prefetch(batch_size * 10)
 
         return dataset
 
