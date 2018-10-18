@@ -4,7 +4,7 @@ import ops
 
 class RelationalNetwork():
 
-    def __init__(self, inputs, qst_color_vocab, qst_type_vocab_size, ans_vocab_size,
+    def __init__(self, inputs, qst_color_vocab_size, qst_type_vocab_size, ans_vocab_size,
                  word_embedding_size, g_theta_layers, f_phi_layers, img_encoding_layers,
                  **kwargs):
 
@@ -20,8 +20,6 @@ class RelationalNetwork():
         self.img_pl = tf.placeholder(tf.float32, shape=[None, 75 + 20, 75, 3])
         self.global_step = tf.Variable(0, trainable=False, name='global_step')
         self.epoch = tf.Variable(0, trainable=False, name='epoch')
-
-
 
         # 20 is margin to put the question inside the image for summary view
 
@@ -96,13 +94,16 @@ class RelationalNetwork():
             return input
 
         def get_embedding_variable(inputs, vocab_size, embedding_size, name):
-            with tf.variable_scope('embedding_layer/{}'.format(name)):
-                variable_embeddings = tf.get_variable(name='variable_embeddings',
-                                                      shape=[vocab_size, embedding_size],
-                                                      initializer=tf.random_uniform_initializer(-1, 1))
+            # with tf.variable_scope('embedding_layer/{}'.format(name)):
+            #     variable_embeddings = tf.get_variable(name='variable_embeddings',
+            #                                           shape=[vocab_size, embedding_size],
+            #                                           initializer=tf.random_uniform_initializer(-1, 1))
+            #
+            #     embed_variable = tf.nn.embedding_lookup(variable_embeddings, inputs,
+            #                                             name='variable_lookup')
 
-                embed_variable = tf.nn.embedding_lookup(variable_embeddings, inputs,
-                                                        name='variable_lookup')
+            with tf.variable_scope('onehot/{}'.format(name)):
+                embed_variable = tf.one_hot(inputs, vocab_size)
             return embed_variable
 
         def build_coord_tensor(batch_size, height):
@@ -159,8 +160,8 @@ class RelationalNetwork():
         # num_input_channel = tf.shape(img)[-1]
 
         with tf.variable_scope('question_embedding'):
-            qst_color_embed = get_embedding_variable(qst_color, qst_color_vocab,
-                                                    word_embedding_size, 'question_color')
+            qst_color_embed = get_embedding_variable(qst_color, qst_color_vocab_size,
+                                                     word_embedding_size, 'question_color')
             qst_type_embed = get_embedding_variable(qst_type, qst_type_vocab_size,
                                                      word_embedding_size, 'question_type')
 
@@ -189,13 +190,14 @@ class RelationalNetwork():
             encoded_img_coord = tf.concat([encoded_img, coord_tensor], axis=3)
 
 
-            qst_color_tiled = tf.reshape(qst_color_embed, [-1, 1, 1, word_embedding_size])
+            # qst_color_tiled = tf.reshape(qst_color_embed, [-1, 1, 1, word_embedding_size])
+            qst_color_tiled = tf.reshape(qst_color_embed, [-1, 1, 1, qst_color_vocab_size])
             qst_color_tiled = tf.tile(qst_color_tiled, [1, reduced_height,
                                                         reduced_height, 1])
 
         with tf.variable_scope('gumbel_softmax'):
 
-            img_color_concat = tf.concat([qst_color_tiled, encoded_img_coord], axis=3)
+            img_color_concat = tf.concat([encoded_img_coord, qst_color_tiled], axis=3)
 
             gate = build_mlp(img_color_concat, gumbel_layers)
 
@@ -207,23 +209,27 @@ class RelationalNetwork():
                                                                   reduced_height,
                                                                   reduced_height, 1))
 
-            tau = tf.minimum(tf.train.exponential_decay(1.0, global_step=self.global_step,
-                                             decay_steps=1000,
-                                             decay_rate=0.95), 0.5)
-            dist = tf.contrib.distributions.RelaxedOneHotCategorical(temperature=tau,
-                                                                     logits=gate_logit)
+            # tau = tf.minimum(tf.train.exponential_decay(5.0, global_step=self.global_step,
+            #                                  decay_steps=1000,
+            #                                  decay_rate=0.95), 0.5)
+            #
+            # dist = tf.contrib.distributions.RelaxedOneHotCategorical(temperature=tau,
+            #                                                          logits=gate_logit)
+            #
+            # sampled_obj_prob = dist.sample()
+            #
+            # max_obj_onehot = tf.reduce_max(sampled_obj_prob, 1, keep_dims=True)
+            # source_obj_onehot = tf.cast(
+            #     tf.equal(sampled_obj_prob, max_obj_onehot), tf.float32)
+            #
+            # source_obj_onehot = tf.stop_gradient(source_obj_onehot - sampled_obj_prob) +\
+            #                     sampled_obj_prob
 
-            sampled_obj_prob = dist.sample()
+            source_obj_onehot = gate_softmax
 
-            source_obj_idx = tf.argmax(sampled_obj_prob, axis=1, output_type=tf.int32)
 
-            source_obj_onehot = tf.one_hot(source_obj_idx, depth=num_obj)
-
-            source_obj_onehot = tf.multiply(sampled_obj_prob, source_obj_onehot)
 
             self.gate = gate_softmax
-
-            # self.gate =tf.zeros((batch_size, reduced_height, reduced_height, 1))
 
 
             tf.add_to_collection('gate', self.gate)
@@ -248,32 +254,29 @@ class RelationalNetwork():
 
             encoded_img_pair = tf.concat([encoded_img_coord, source_obj_tiled], axis=3)
 
-            self.get = [source_obj, encoded_img_coord, source_obj_idx]
-
-            # encoded_img_coord_flatten = tf.reshape(encoded_img_coord, [batch_size, -1,
-            #                                                         encode_num_channels + 2])
-            # source_obj = tf.gather_nd(encoded_img_coord_flatten, source_obj_idx)
-            # source_obj = tf.reshape(source_obj, [batch_size, 1, 1, encode_num_channels+2])
-            #
-            # source_obj_tiled = tf.tile(source_obj, [1, reduced_height, reduced_height, 1])
-            # source_obj_tiled = tf.zeros_like(encoded_img_coord)
-
-            # encoded_img_pair = tf.concat([encoded_img_coord, source_obj_tiled], axis=3)
-
-            # encoded_img_pair = tf.concat([encoded_img_coord, source_obj_tiled], axis=3)
+            # self.get = [max_obj_onehot, encoded_img_coord, source_obj_onehot, source_obj]
 
 
         with tf.variable_scope('img_qst_concat'):
-            encoded_qst_expand = tf.reshape(encoded_qst,
-                                            [batch_size, 1, 1, word_embedding_size * 2])
 
 
-            encoded_qst_tiled = tf.tile(encoded_qst_expand, [1, reduced_height,
-                                                             reduced_height, 1])
 
-            print('encoded tiled', encoded_qst_tiled.shape)
+            # encoded_qst_expand = tf.reshape(encoded_qst,
+            #                                 [batch_size, 1, 1, word_embedding_size * 2])
+            #
+            #
+            # encoded_qst_tiled = tf.tile(encoded_qst_expand, [1, reduced_height,
+            #                                                  reduced_height, 1])
+            # print('encoded tiled', encoded_qst_tiled.shape)
+            # encoded_img_qst_pair = tf.concat([encoded_img_pair, encoded_qst_tiled], axis=3)
 
-            encoded_img_qst_pair = tf.concat([encoded_img_pair, encoded_qst_tiled], axis=3)
+            # qst_type_tiled = tf.reshape(qst_type_embed, [-1, 1, 1, word_embedding_size])
+            qst_type_tiled = tf.reshape(qst_type_embed, [-1, 1, 1, qst_type_vocab_size])
+            qst_type_tiled = tf.tile(qst_type_tiled, [1, reduced_height,
+                                                      reduced_height, 1])
+            encoded_img_qst_pair = tf.concat([encoded_img_pair, qst_type_tiled],
+                                             axis=3)
+
 
         with tf.variable_scope('g_theta'):
             print('build g_theta')

@@ -4,7 +4,7 @@ import ops
 
 class RelationalNetwork():
 
-    def __init__(self, inputs, qst_color_vocab, qst_type_vocab_size, ans_vocab_size,
+    def __init__(self, inputs, qst_color_vocab_size, qst_type_vocab_size, ans_vocab_size,
                  word_embedding_size, g_theta_layers, f_phi_layers, img_encoding_layers,
                  **kwargs):
 
@@ -74,13 +74,16 @@ class RelationalNetwork():
             return input
 
         def get_embedding_variable(inputs, vocab_size, embedding_size, name):
-            with tf.variable_scope('embedding_layer/{}'.format(name)):
-                variable_embeddings = tf.get_variable(name='variable_embeddings',
-                                                      shape=[vocab_size, embedding_size],
-                                                      initializer=tf.random_uniform_initializer(-1, 1))
+            # with tf.variable_scope('embedding_layer/{}'.format(name)):
+            #     variable_embeddings = tf.get_variable(name='variable_embeddings',
+            #                                           shape=[vocab_size, embedding_size],
+            #                                           initializer=tf.random_uniform_initializer(-1, 1))
+            #
+            #     embed_variable = tf.nn.embedding_lookup(variable_embeddings, inputs,
+            #                                             name='variable_lookup')
 
-                embed_variable = tf.nn.embedding_lookup(variable_embeddings, inputs,
-                                                        name='variable_lookup')
+            with tf.variable_scope('onehot/{}'.format(name)):
+                embed_variable = tf.one_hot(inputs, vocab_size)
             return embed_variable
 
         def build_coord_tensor(batch_size, height):
@@ -138,8 +141,8 @@ class RelationalNetwork():
         # num_input_channel = tf.shape(img)[-1]
 
         with tf.variable_scope('question_embedding'):
-            qst_color_embed = get_embedding_variable(qst_color, qst_color_vocab,
-                                                    word_embedding_size, 'question_color')
+            qst_color_embed = get_embedding_variable(qst_color, qst_color_vocab_size,
+                                                     word_embedding_size, 'question_color')
             qst_type_embed = get_embedding_variable(qst_type, qst_type_vocab_size,
                                                      word_embedding_size, 'question_type')
 
@@ -164,8 +167,11 @@ class RelationalNetwork():
                                           axis=3)
 
         with tf.variable_scope('img_qst_concat'):
+            # encoded_qst_expand = tf.reshape(encoded_qst,
+            #                                 [batch_size, 1, 1, word_embedding_size * 2])
+
             encoded_qst_expand = tf.reshape(encoded_qst,
-                                            [batch_size, 1, 1, word_embedding_size * 2])
+                                            [batch_size, 1, 1, qst_type_vocab_size + qst_color_vocab_size])
 
 
             encoded_qst_tiled = tf.tile(encoded_qst_expand, [1, reduced_height,
