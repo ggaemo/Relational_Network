@@ -17,11 +17,12 @@ slack = 5
 
 num_shape = 2
 num_rel_qst = 5
+num_nonrel_qst = 3
 question_size = 11 + (num_rel_qst - 3)  ##6 for one-hot vector of color, 2 for question
                       # type,
 
-answer_size_before_color = 10 +num_shape  # 0 ~ 9 answer_dict
-answer_size_before_count = 4  # 0 ~ 4
+answer_size_before_color = 10 + (num_shape - 2)  # 0 ~ 9 answer_dict
+answer_size_before_count = 4  + (num_shape - 2) # 0 ~ 4
 
 
 # 3 for question subtype
@@ -318,7 +319,7 @@ def build_dataset_all_question():
     norel_answers = []
     # """Non-relational questions"""
     for color in color_dict.keys():
-        for subtype in [0, 1, 2]:
+        for subtype in range(num_nonrel_qst):
             question = np.zeros((question_size))
             # color = random.randint(0, 5)
             question[color] = 1
