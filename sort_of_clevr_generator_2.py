@@ -16,7 +16,7 @@ size = 4
 slack = 5
 
 num_shape = 2
-num_rel_qst = 5
+num_rel_qst = 7
 num_nonrel_qst = 3
 question_size = 11 + (num_rel_qst - 3)  ##6 for one-hot vector of color, 2 for question
                       # type,
@@ -60,7 +60,9 @@ question_type_dict = {
             4: 'f_c',
             5: 'co',
             6: 'cl_s',
-            7: 'f_s'
+            7: 'f_s',
+            8:'f_cl_c',
+            9:'cl_f_c'
         }
 
 
@@ -149,140 +151,6 @@ def center_generate(objects):
         if pas:
             return center
 
-
-def build_dataset():
-    objects = []
-    img = np.ones((img_size, img_size, 3)) * 255
-    for color_id, color in enumerate(colors):
-        center = center_generate(objects)
-        shape = np.random.randint(num_shape)
-        if shape == 0:
-            start = (center[0] - size, center[1] - size)
-            end = (center[0] + size, center[1] + size)
-            # cv2.rectangle(img, start, end, color, -1)
-            rr, cc = rectangle(start, end)
-            img[rr, cc] = color
-            objects.append((color_id, center, 'rec'))
-
-        elif shape == 1:
-            center_ = (center[0], center[1])
-            # cv2.circle(img, center_, size, color, -1)
-            rr, cc = circle(*center_, size + 1)
-            img[rr, cc] = color
-
-            objects.append((color_id, center, 'cir'))
-
-        elif shape == 2:
-            center_ = (center[1] , center[0])
-            img = draw_triangle(img, img_size, *center_, size  , color)
-            objects.append((color_id, center, 'tri'))
-
-
-
-    rel_questions = []
-    norel_questions = []
-    rel_answers = []
-    norel_answers = []
-    # """Non-relational questions"""
-    for _ in range(nb_questions):
-        question = np.zeros((question_size))
-        color = random.randint(0, 5)
-        question[color] = 1
-        question[6] = 1
-        subtype = random.randint(0, 2)
-        question[subtype + 8] = 1
-        norel_questions.append(question)
-        """Answer : [yes, no, rectangle, circle, r, g, b, o, k, y]"""
-        if subtype == 0:
-            """query shape->rectangle/circle"""
-            if objects[color][2] == 'rec':
-                answer = 2
-            elif objects[color][2] == 'cir':
-                answer = 3
-            elif objects[color][2] == 'tri':
-                answer = 4
-            else:
-                print('error in dat')
-                exit()
-
-        elif subtype == 1:
-            """query horizontal position->yes/no"""
-            if objects[color][1][0] < img_size / 2:
-                answer = 0
-            else:
-                answer = 1
-
-        elif subtype == 2:
-            """query vertical position->yes/no"""
-            if objects[color][1][1] < img_size / 2:
-                answer = 0
-            else:
-                answer = 1
-        norel_answers.append(answer)
-
-    """Relational questions"""
-    for i in range(nb_questions):
-        question = np.zeros((question_size))
-        color = random.randint(0, 5)
-        question[color] = 1
-        question[7] = 1
-        subtype = random.randint(0, 2)
-        question[subtype + 8] = 1
-        rel_questions.append(question)
-
-        if subtype == 0:
-            """closest-to->rectangle/circle"""
-            my_obj = objects[color][1]
-            dist_list = [((my_obj - obj[1]) ** 2).sum() for obj in objects]
-            dist_list[dist_list.index(0)] = (img_size ** 2) * 2 #max distance
-            closest = dist_list.index(min(dist_list))
-            if objects[closest][2] == 'rec':
-                answer = 2
-            elif objects[closest][2] == 'cir':
-                answer = 3
-            elif objects[closest][2] == 'tri':
-                answer = 4
-            else:
-                print('error in data')
-                exit()
-            # answer = objects[closest][0] + answer_size_before_color
-
-        elif subtype == 1:
-            """furthest-from->rectangle/circle"""
-            my_obj = objects[color][1]
-            dist_list = [((my_obj - obj[1]) ** 2).sum() for obj in objects]
-            furthest = dist_list.index(max(dist_list))
-
-            if objects[furthest][2] == 'rec':
-                answer = 2
-            elif objects[furthest][2] == 'cir':
-                answer = 3
-            elif objects[furthest][2] == 'tri':
-                answer = 4
-            else:
-                print('error in data')
-                exit()
-
-            # answer = objects[furthest][0] + answer_size_before_color
-
-        elif subtype == 2:
-            """count->1~6"""
-            my_obj = objects[color][2]
-            count = -1
-            for obj in objects:
-                if obj[2] == my_obj:
-                    count += 1
-
-            answer = count + answer_size_before_count
-
-        rel_answers.append(answer)
-
-    relations = (rel_questions, rel_answers)
-    norelations = (norel_questions, norel_answers)
-
-    # img = img / 255.
-    dataset = (img, relations, norelations)
-    return dataset
 
 def build_dataset_all_question():
     objects = []
@@ -377,14 +245,14 @@ def build_dataset_all_question():
                 answer = objects[closest][0] + answer_size_before_color
 
             elif subtype == 1:
-                """furthest-from->rectangle/circle"""
+                """farthest-from->rectangle/circle"""
                 my_obj = objects[color][1]
                 dist_list = [((my_obj - obj[1]) ** 2).sum() for obj in objects]
-                furthest = dist_list.index(max(dist_list))
+                farthest = dist_list.index(max(dist_list))
 
 
 
-                answer = objects[furthest][0] + answer_size_before_color
+                answer = objects[farthest][0] + answer_size_before_color
 
             elif subtype == 2:
                 """count->1~6"""
@@ -416,20 +284,50 @@ def build_dataset_all_question():
 
 
             elif subtype == 4:
-                """furthest-from->rectangle/circle"""
+                """farthest-from->rectangle/circle"""
                 my_obj = objects[color][1]
                 dist_list = [((my_obj - obj[1]) ** 2).sum() for obj in objects]
-                furthest = dist_list.index(max(dist_list))
+                farthest = dist_list.index(max(dist_list))
 
-                if objects[furthest][2] == 'rec':
+                if objects[farthest][2] == 'rec':
                     answer = 2
-                elif objects[furthest][2] == 'cir':
+                elif objects[farthest][2] == 'cir':
                     answer = 3
-                # elif objects[furthest][2] == 'tri':
+                # elif objects[farthest][2] == 'tri':
                 #     answer = 4
                 else:
                     print('error in data')
                     exit()
+
+            elif subtype == 5:
+                """farthest-from-closest"""
+                my_obj = objects[color][1]
+                dist_list = [((my_obj - obj[1]) ** 2).sum() for obj in objects]
+                farthest = dist_list.index(max(dist_list))
+
+                farthest_obj = objects[farthest][1]
+                dist_list = [((farthest_obj - obj[1]) ** 2).sum() for obj in objects]
+                dist_list[dist_list.index(0)] = (img_size ** 2) * 2  # max distance
+                farthest_closest = dist_list.index(min(dist_list))
+
+                answer = objects[farthest_closest][0] + answer_size_before_color
+
+            elif subtype == 6:
+                """closest-from-farthest"""
+                my_obj = objects[color][1]
+                dist_list = [((my_obj - obj[1]) ** 2).sum() for obj in objects]
+                dist_list[dist_list.index(0)] = (img_size ** 2) * 2  # max distance
+                closest = dist_list.index(min(dist_list))
+
+                closest_obj = objects[closest][1]
+                dist_list = [((closest_obj - obj[1]) ** 2).sum() for obj in objects]
+                closest_farthest = dist_list.index(max(dist_list))
+
+                answer = objects[closest_farthest][0] + answer_size_before_color
+                
+
+
+
 
 
 
@@ -482,7 +380,25 @@ def generate_data(data_option=None):
 
 
 def test():
-    a = [build_dataset() for _ in range(1000)]
+    a = [build_dataset_all_question() for _ in range(10)]
+    import matplotlib.pyplot as plt
+    for val in a:
+        img, relations, nonrelations = val
+        (rel_questions, rel_answers) = relations
+        (norel_questions, norel_answers) = nonrelations
+        for q, a in zip(rel_questions, rel_answers):
+            for subtype in [5, 6]:
+                if q[subtype + 8] == 1:
+                    color = list(q[:6]).index(1)
+                    print(question_type_dict[subtype + 3], color_dict[color],
+                          answer_dict[a])
+                    plt.imshow(img)
+                    plt.show()
+
+
+
+
+
 
 
 if __name__ == '__main__':
