@@ -16,7 +16,7 @@ size = 4
 slack = 5
 
 num_shape = 2
-num_rel_qst = 7
+num_rel_qst = 9
 num_nonrel_qst = 3
 question_size = 11 + (num_rel_qst - 3)  ##6 for one-hot vector of color, 2 for question
                       # type,
@@ -324,6 +324,38 @@ def build_dataset_all_question():
                 closest_farthest = dist_list.index(max(dist_list))
 
                 answer = objects[closest_farthest][0] + answer_size_before_color
+
+            elif subtype == 7:
+                """farthest-from-closest"""
+                my_obj = objects[color][1]
+                dist_list = [((my_obj - obj[1]) ** 2).sum() for obj in objects]
+                farthest = dist_list.index(max(dist_list))
+
+                farthest_obj = objects[farthest][1]
+                dist_list = [((farthest_obj - obj[1]) ** 2).sum() for obj in objects]
+                dist_list[dist_list.index(0)] = (img_size ** 2) * 2  # max distance
+                farthest_closest = dist_list.index(min(dist_list))
+
+                if objects[farthest_closest][2] == 'rec':
+                    answer = 2
+                elif objects[farthest_closest][2] == 'cir':
+                    answer = 3
+
+            elif subtype == 8:
+                """closest-from-farthest"""
+                my_obj = objects[color][1]
+                dist_list = [((my_obj - obj[1]) ** 2).sum() for obj in objects]
+                dist_list[dist_list.index(0)] = (img_size ** 2) * 2  # max distance
+                closest = dist_list.index(min(dist_list))
+
+                closest_obj = objects[closest][1]
+                dist_list = [((closest_obj - obj[1]) ** 2).sum() for obj in objects]
+                closest_farthest = dist_list.index(max(dist_list))
+
+                if objects[closest_farthest][2] == 'rec':
+                    answer = 2
+                elif objects[closest_farthest][2] == 'cir':
+                    answer = 3
                 
 
 
