@@ -17,7 +17,11 @@ class RelationalNetwork():
         # self.qst_word = tf.placeholder(tf.string, shape=[None])
         # self.ans_word = tf.placeholder(tf.string, shape=[None])
         # self.pred_word = tf.placeholder(tf.string, shape=[None])
-        self.img_pl = tf.placeholder(tf.float32, shape=[None, 75 + 20, 75, 3])
+
+        if 'img_size' in kwargs:
+            img_size = kwargs['img_size']
+
+        self.img_pl = tf.placeholder(tf.float32, shape=[None, img_size + 20, img_size, 3])
         self.global_step = tf.Variable(0, trainable=False, name='global_step')
         self.epoch = tf.Variable(0, trainable=False, name='epoch')
 
@@ -44,7 +48,7 @@ class RelationalNetwork():
         if 'reduced_height' in kwargs:
             reduced_height = kwargs['reduced_height']
 
-        gumbel_layers = kwargs['gumbel_layers']
+        attention_layers = kwargs['attention_layers']
 
         self.g_theta_activation = tf.placeholder(tf.float32,
                                                  shape=[None, reduced_height, reduced_height, 1])
@@ -130,8 +134,6 @@ class RelationalNetwork():
         self.qst_type = qst_type
         self.qst_subtype = qst_subtype
 
-
-
         qst_subtype_len = 3
 
         qst_type = qst_type * qst_subtype_len  + qst_subtype
@@ -147,6 +149,7 @@ class RelationalNetwork():
         tf.add_to_collection('qst', self.qst)
         tf.add_to_collection('qst_color', qst_color)
         tf.add_to_collection('qst_type', qst_type)
+
 
         # qst_color, qst_type = tf.split(qst, 2, axis=1)
 
@@ -189,17 +192,21 @@ class RelationalNetwork():
 
             encoded_img_coord = tf.concat([encoded_img, coord_tensor], axis=3)
 
-
-            # qst_color_tiled = tf.reshape(qst_color_embed, [-1, 1, 1, word_embedding_size])
-            qst_color_tiled = tf.reshape(qst_color_embed, [-1, 1, 1, qst_color_vocab_size])
-            qst_color_tiled = tf.tile(qst_color_tiled, [1, reduced_height,
-                                                        reduced_height, 1])
+            # qst_color_tiled = tf.reshape(qst_color_embed, [-1, 1, 1, qst_color_vocab_size])
+            # qst_color_tiled = tf.tile(qst_color_tiled, [1, reduced_height,
+            #                                             reduced_height, 1])
 
         with tf.variable_scope('gumbel_softmax'):
 
-            img_color_concat = tf.concat([encoded_img_coord, qst_color_tiled], axis=3)
 
-            gate = build_mlp(img_color_concat, gumbel_layers)
+            encoded_qst = tf.reshape(encoded_qst, [-1, 1, 1,
+                                                            qst_color_vocab_size + qst_type_vocab_size])
+            encoded_qst_tiled = tf.tile(encoded_qst, [1, reduced_height,
+                                                        reduced_height, 1])
+            # img_color_concat = tf.concat([encoded_img_coord, qst_color_tiled], axis=3)
+            img_color_concat = tf.concat([encoded_img_coord, encoded_qst_tiled], axis=3)
+
+            gate = build_mlp(img_color_concat, attention_layers)
 
             gate_logit = tf.layers.dense(gate, 1, use_bias=False) #linear
 
@@ -259,23 +266,30 @@ class RelationalNetwork():
 
         with tf.variable_scope('img_qst_concat'):
 
+            ''# encoded_qst_expand = tf.reshape(encoded_qst,
+            ''#                                 [batch_size, 1, 1, word_embedding_size * 2])
+            ''#
+            ''#
+            ''# encoded_qst_tiled = tf.tile(encoded_qst_expand, [1, reduced_height,
+            ''#                                                  reduced_height, 1])
+            ''# print('encoded tiled', encoded_qst_tiled.shape)
+            ''# encoded_img_qst_pair = tf.concat([encoded_img_pair, encoded_qst_tiled], axis=3)
+            ''# qst_type_tiled = tf.reshape(qst_type_embed, [-1, 1, 1, word_embedding_size])
 
 
-            # encoded_qst_expand = tf.reshape(encoded_qst,
-            #                                 [batch_size, 1, 1, word_embedding_size * 2])
+
+            # qst_type_tiled = tf.reshape(qst_type_embed, [-1, 1, 1, qst_type_vocab_size])
+            # qst_type_tiled = tf.tile(qst_type_tiled, [1, reduced_height,
+            #                                           reduced_height, 1])
             #
             #
-            # encoded_qst_tiled = tf.tile(encoded_qst_expand, [1, reduced_height,
-            #                                                  reduced_height, 1])
-            # print('encoded tiled', encoded_qst_tiled.shape)
-            # encoded_img_qst_pair = tf.concat([encoded_img_pair, encoded_qst_tiled], axis=3)
+            # encoded_img_qst_pair = tf.concat([encoded_img_pair, qst_type_tiled],
+            #                                  axis=3)
 
-            # qst_type_tiled = tf.reshape(qst_type_embed, [-1, 1, 1, word_embedding_size])
-            qst_type_tiled = tf.reshape(qst_type_embed, [-1, 1, 1, qst_type_vocab_size])
-            qst_type_tiled = tf.tile(qst_type_tiled, [1, reduced_height,
-                                                      reduced_height, 1])
-            encoded_img_qst_pair = tf.concat([encoded_img_pair, qst_type_tiled],
+            encoded_img_qst_pair = tf.concat([encoded_img_pair, encoded_qst_tiled],
                                              axis=3)
+
+
 
 
         with tf.variable_scope('g_theta'):
