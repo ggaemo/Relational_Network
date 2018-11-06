@@ -29,7 +29,7 @@ parser.add_argument('-run_meta', action='store_true', default=False)
 parser.add_argument('-restore', action='store_true', default=False)
 
 
-parser.add_argument('-gumbel_layers', type=int, nargs='+')
+parser.add_argument('-attention_layers', type=int, nargs='+')
 args = parser.parse_args()
 
 
@@ -49,7 +49,7 @@ restore = args.restore
 base_learning_rate = args.learning_rate
 data_option = args.data_option
 
-gumbel_layers = args.gumbel_layers
+attention_layers = args.attention_layers
 
 img_encoding_layers_parsed = [img_encoding_layers[i:i+3] for i in
                               np.arange(len(img_encoding_layers), step =3)]
@@ -58,8 +58,9 @@ def layer_config_to_str(layer_config):
     return '-'.join([str(x) for x in layer_config])
 
 if data == 's_CLEVR':
-    if gumbel_layers:
-        option = '{}_gumbel_{}'.format(option, layer_config_to_str(gumbel_layers))
+    if attention_layers:
+        option = '{}_attention_{}'.format(option, layer_config_to_str(attention_layers))
+
     dir_format = 'model/{}/{}_bs-{}_we-{}_g-{}_f-{}_cnn-{}_reg-{}_{}_data-{}/'
     model_dir = dir_format.format(
         data,
@@ -115,7 +116,6 @@ terminal_output = open(model_dir+'terminal_output.txt', 'w')
 
 
 with tf.Graph().as_default():
-
 
     if data == 'CLEVR':
 
@@ -181,13 +181,9 @@ with tf.Graph().as_default():
     elif data == 's_CLEVR':
 
         import sort_of_celvr_inputs as inputs
-        import sort_of_clevr_generator_2
-
-        # import vqa_util
 
 
-
-        height = 75
+        height = 128
         reduced_height = np.ceil(height / (2 ** len(img_encoding_layers_parsed)))
         num_obj = reduced_height ** 2
 
@@ -242,10 +238,10 @@ with tf.Graph().as_default():
                 cnn_reg = cnn_reg,
                 reduced_height=reduced_height
             )
-        elif model_type == 'gumbel':
-            import model_sort_of_clevr_gumbel_softmax
+        elif model_type == 'attention':
+            import model_sort_of_clevr_attention
 
-            model = model_sort_of_clevr_gumbel_softmax.RelationalNetwork(
+            model = model_sort_of_clevr_attention.RelationalNetwork(
                 next_batch,
                 qst_color_vocab,
                 qst_type_vocab_size,
@@ -260,7 +256,29 @@ with tf.Graph().as_default():
                 cnn_reg=cnn_reg,
                 reduced_height=reduced_height,
                 num_obj=num_obj,
-                gumbel_layers=gumbel_layers
+                gumbel_layers=attention_layers,
+                img_size=height
+            )
+        elif model_type == 'seq_attention':
+            import model_sort_of_clevr_seq_attention
+
+            model = model_sort_of_clevr_seq_attention.RelationalNetwork(
+                next_batch,
+                qst_color_vocab,
+                qst_type_vocab_size,
+                ans_vocab_size,
+                word_embedding_size,
+                g_theta_layers,
+                f_phi_layers,
+                img_encoding_layers_parsed,
+                batch_size=batch_size,
+                question_type_dict=idx_to_qst_type,
+                base_learning_rate=base_learning_rate,
+                cnn_reg=cnn_reg,
+                reduced_height=reduced_height,
+                num_obj=num_obj,
+                attention_layers=attention_layers,
+                img_size=height
             )
 
         save_interval = 1000
@@ -310,10 +328,15 @@ with tf.Graph().as_default():
                                 epoch_num),
                                                             epoch_num)
 
+                    # max_obj_onehot, encoded_img_coord, source_obj_onehot, source_obj= sess.run(
+                    #     model.get, feed_dict={model.is_training: True})
+
+
+
                     if global_step % save_interval == 0:
                         _, global_step, trn_loss_summary = sess.run([model.train_op,
-                                                          model.global_step,
-                                                   model.trn_loss_summary],
+                                                                     model.global_step,
+                                                                     model.trn_loss_summary],
                                                                     {model.is_training:True})
 
                         summary_writer.add_summary(trn_loss_summary, epoch_num)
