@@ -75,22 +75,6 @@ class RelationalNetwork():
                     print(input.shape)
             return input
 
-        def build_conv_transpose(input, layers):
-            print('build conv transpose net')
-            for layer_num, layer_config in enumerate(layers[:-1]):
-                (num_filter, kernel_size, stride) = layer_config
-                with tf.variable_scope('conv_layer_{}'.format(layer_num)):
-                    input = ops.conv_transpose(input, num_filter, kernel_size, stride,
-                                               cnn_reg,
-                                     tf.nn.relu, self.is_training)
-                    print(input.shape)
-
-            (num_filter, kernel_size, stride) = layers[-1]
-            with tf.variable_scope('conv_layer_{}'.format(layer_num+1)):
-                input = ops.conv_transpose(input, num_filter, kernel_size, stride,
-                                           'bn',
-                                           tf.nn.tanh, self.is_training)
-            return input
 
         def get_embedding_variable(inputs, vocab_size, embedding_size, name):
             # with tf.variable_scope('embedding_layer/{}'.format(name)):
@@ -168,13 +152,6 @@ class RelationalNetwork():
 
             encoded_qst = tf.concat([qst_color_embed, qst_type_embed], axis=1)
 
-            # encode_num_channels = self.encoding_layers[-1][0]
-            # encoded_qst = build_mlp(encoded_qst, [64, 64, encode_num_channels + 4])
-            # key_dim = int(encode_num_channels/2) +2
-            # val_dim = key_dim             #
-            # encoded_qst_key, encoded_qst_val = tf.split(encoded_qst, 2, axis=1)
-
-            # last 2 added because of coordinate tensor
             tf.add_to_collection('encoded_qst', encoded_qst)
 
 
@@ -190,46 +167,9 @@ class RelationalNetwork():
 
             encoded_img_coord = tf.concat([encoded_img, coord_tensor], axis=3)
 
-            # enc_img_key, enc_img_val = tf.split(encoded_img, 2, axis=3)
-            #
-            # enc_img_key_coord = tf.concat([enc_img_key, coord_tensor], axis=3)
-            # enc_img_val_coord = tf.concat([enc_img_val, coord_tensor], axis=3)
-            #
-            # encoded_qst_key = tf.reshape(encoded_qst_key, [batch_size, 1, 1,
-            #                                                key_dim])
-
-            # # gate_logit = tf.reduce_sum(tf.multiply(enc_img_key_coord, encoded_qst_key),
-            # #                            axis=3) / tf.sqrt(tf.cast(key_dim, tf.float32))
-            #
-            # encoded_qst_key = tf.tile(encoded_qst_key, [1, reduced_height,
-            #                                             reduced_height, 1])
-            # gate_concate = tf.concat([enc_img_key_coord, encoded_qst_key], axis=3)
-            # gate_logit = build_mlp(gate_concate, [64, 64, 1])
-            #
-            # #soft max
-            # # gate_logit = tf.reshape(gate_logit, [batch_size, -1])
-            # # gate = tf.nn.softmax(gate_logit, axis=1)
-            #
-            # #bernoulli
-            # gate = tf.nn.sigmoid(gate_logit)
-            #
-            # gate = tf.reshape(gate, [batch_size, reduced_height, reduced_height])
-            #
-            # gate = tf.expand_dims(gate, 3)
-
-            # gate = tf.zeros((batch_size, reduced_height, reduced_height, 1))
-            # self.gate = gate
-            #
-            #
-            # tf.add_to_collection('gate', gate)
-
-            # encoded_img_coord = tf.multiply(gate, enc_img_val_coord)
-
 
         with tf.variable_scope('image_object_pairing'):
             print('encoded img_coord', encoded_img_coord.shape)
-            # encoded_img_flatten = tf.reshape(encoded_img_coord, [batch_size, num_obj,
-            #                                                      val_dim])
 
             encode_num_channels = self.encoding_layers[-1][0]
             encoded_img_flatten = tf.reshape(encoded_img_coord, [batch_size, num_obj,
@@ -264,8 +204,6 @@ class RelationalNetwork():
 
 
         with tf.variable_scope('img_qst_concat'):
-            # encoded_qst_expand = tf.reshape(encoded_qst,
-            #                                 [batch_size, word_embedding_size * 2, 1, 1])
 
             encoded_qst_expand = tf.reshape(encoded_qst,
                                             [batch_size, qst_type_vocab_size + qst_color_vocab_size, 1, 1])
@@ -283,9 +221,6 @@ class RelationalNetwork():
 
             # [b, # channel + #rnn dim, d*d, d*d]
 
-        # tf.add_to_collection('assert', tf.assert_equal(encoded_img_qst_pair, tf.matrix_band_part(
-        #     encoded_img_qst_pair,-1, 0), message='qst lower'))
-
         encoded_img_qst_pair = tf.transpose(encoded_img_qst_pair, [0, 2, 3, 1])
 
         # [b, d*d, d*d,  # channel + # rnn dim]
@@ -298,17 +233,11 @@ class RelationalNetwork():
             print('build g_theta')
 
             pair_output = build_mlp(encoded_img_qst_pair, self.g_theta_layers)
-            # mask = tf.reshape(tf.matrix_band_part(tf.ones([num_obj, num_obj]), -1,
-            #                                           0), [1, num_obj, num_obj, 1])
+
             mask = tf.linalg.LinearOperatorLowerTriangular(
                 tf.ones([num_obj, num_obj]))
 
-            # for excluding diag objects
-            # diag_minus_ones = tf.diag(-tf.ones([num_obj]))
-            # mask = mask.to_dense() + diag_minus_ones
-            # mask = tf.reshape(mask, [1, num_obj, num_obj, 1])
-
-            mask = tf.reshape(mask.to_dense(), [1, num_obj, num_obj, 1])
+            mask = tf.reshape(mask.to_dense(), [1, num_obj, num_obj, 1]) # lower triangle
 
             pair_output_lower = tf.multiply(pair_output, mask)
             self.pair_output_lower = pair_output_lower
@@ -320,17 +249,11 @@ class RelationalNetwork():
             # pair_output_lower = pair_output
             pair_output_sum = tf.reduce_sum(pair_output_lower, (1, 2))
 
-            # self.a = tf.assert_equal(pair_output_lower, pair_output,
-            #                                                message='lower_pair')
-            #
-            # self.get = [pair_output_lower, pair_output]
 
         with tf.variable_scope('f_phi'):
             print('build f_phi')
             self.f_phi = build_mlp(pair_output_sum, self.f_phi_layers)
             print('no drop out')
-            #len(self.f_phi_layers) - 1)
-
 
         with tf.variable_scope('output'):
             self.output = tf.layers.dense(self.f_phi, ans_vocab_size,
@@ -338,26 +261,17 @@ class RelationalNetwork():
             # this layer is a softmax activation layer
 
         with tf.variable_scope('loss'):
-
             xent_loss_raw =tf.nn.sparse_softmax_cross_entropy_with_logits(
                 labels=ans, logits=self.output)
-            xent_loss_raw = tf.check_numerics(xent_loss_raw, 'nan value found '
-                                                                       'in '
-                                                                  'loss raw')
+            xent_loss_raw = tf.check_numerics(xent_loss_raw, 'nan value found in loss raw')
             self.xent_loss = tf.reduce_mean(xent_loss_raw)
-
             self.loss = self.xent_loss
-
-
-
 
 
         with tf.variable_scope('learning_rate'):
             self.global_step = tf.Variable(0, trainable=False, name='global_step')
             self.epoch = tf.Variable(0, trainable=False, name='epoch')
             self.increment_epoch_op = tf.assign(self.epoch, self.epoch + 1)
-            # https://github.com/tensorflow/tensorflow/issues/19568 update_ops crashses
-            # wehn rnn length is 32
 
             if self.batch_size_for_learning_rate < 64:
                 self.learning_rate = self.base_learning_rate
