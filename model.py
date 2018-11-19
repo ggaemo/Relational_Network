@@ -128,7 +128,7 @@ class RelationalNetwork():
             # GRU
             encoded_qst = last_states
 
-            self.get = [question_embed, qst_len, rnn_outputs, last_states]
+
             #LSTM
             # c, h = last_states
             # encoded_qst = h

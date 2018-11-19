@@ -196,7 +196,7 @@ class RelationalNetwork():
             # qst_color_tiled = tf.tile(qst_color_tiled, [1, reduced_height,
             #                                             reduced_height, 1])
 
-        with tf.variable_scope('gumbel_softmax'):
+        with tf.variable_scope('attention'):
 
 
             encoded_qst = tf.reshape(encoded_qst, [-1, 1, 1,

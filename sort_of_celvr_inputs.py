@@ -113,7 +113,7 @@ def inputs(batch_size, data_option, num_parallel_calls=10):
         })
 
         image = tf.decode_raw(parsed['img_raw'], tf.uint8)
-        image = tf.reshape(image, [75, 75, 3])
+        image = tf.reshape(image, [256, 256, 3])
 
         # image = tf.image.resize_images(image, (128, 128), method=1) # nearest neighbor
 
@@ -182,18 +182,18 @@ def test():
     import matplotlib.pyplot as plt
     import cv2
     with tf.Session() as sess:
-        batch_size = 24
-        next_batch, trn_init_op, test_init_op = inputs(batch_size)
+        batch_size = 200
+        next_batch, trn_init_op, test_init_op, answer_dict, color_dict, question_type_dict = inputs(batch_size, 'order_2')
 
         # with open('data/CLEVR_v1.0/processed_data/question_answer_dict.pkl', 'rb') as f:
         #     convert_dict = pickle.load(f)
         # word_to_idx, idx_to_word, answer_word_to_idx, answer_idx_to_word = convert_dict
 
-        import sort_of_clevr_generator_2
-
-        color_dict = sort_of_clevr_generator_2.color_dict
-        question_type_dict = sort_of_clevr_generator_2.question_type_dict
-        answer_dict = sort_of_clevr_generator_2.answer_dict
+        # import sort_of_clevr_generator_2
+        #
+        # color_dict = sort_of_clevr_generator_2.color_dict
+        # question_type_dict = sort_of_clevr_generator_2.question_type_dict
+        # answer_dict = sort_of_clevr_generator_2.answer_dict
 
         while True:
             sess.run(test_init_op)
@@ -211,12 +211,11 @@ def test():
             height = img.shape[1]
             half = int(height / 2)
 
-            print(half)
-
+            # q_list = [(x[0], x[1] - 6, x[2] - 8) for x in q_list]
 
             for i in range(batch_size):
 
-                if qst[i] == 1 or qst[i] == 2:
+                if qst[i] == 8 or qst[i] == 9:
 
                     print(color_dict[qst_c[i]], question_type_dict[qst[i]])
                     print(answer_dict[ans[i]])

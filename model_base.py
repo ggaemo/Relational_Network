@@ -178,8 +178,9 @@ class RelationalNetwork():
             pair_output = build_mlp(encoded_img_qst, self.g_theta_layers)
 
 
-            self.pair_output_lower_activation = tf.reduce_sum(tf.abs(pair_output), 3,
-                                                              keep_dims=True)
+            # self.pair_output_lower_activation = tf.reduce_sum(tf.abs(pair_output), 3,
+            #                                                   keep_dims=True)
+
             tf.add_to_collection('g_theta', pair_output)
 
             # pair_output_lower = pair_output

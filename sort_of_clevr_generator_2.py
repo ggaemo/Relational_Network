@@ -11,12 +11,12 @@ from skimage.draw import polygon
 
 train_size = 9800
 test_size = 200
-img_size = 75
+img_size = 128
 size = 4
-slack = 5
+slack = 3
 
 num_shape = 2
-num_rel_qst = 9
+num_rel_qst = 5 #9
 num_nonrel_qst = 3
 question_size = 11 + (num_rel_qst - 3)  ##6 for one-hot vector of color, 2 for question
                       # type,
@@ -140,16 +140,25 @@ def draw_triangle(img, img_size, x, y, size, color):
 
 
 def center_generate(objects):
-    while True:
-        pas = True
 
-        center = np.random.randint(0 + size + slack, img_size - size - slack, 2)
-        if len(objects) > 0:
-            for name, c, shape in objects:
-                if ((center - c) ** 2).sum() < (3 * (size * 2) ** 2):
-                    pas = False
-        if pas:
-            return center
+    while True:
+        cnt = 0
+        while True:
+            pas = True
+
+            center = np.random.randint(0 + size + slack, img_size - size - slack, 2)
+            if len(objects) > 0:
+                for name, c, shape in objects:
+                    if ((center - c) ** 2).sum() < (1 * (size * 2) ** 2):
+                        pas = False
+                        cnt +=1
+
+            if cnt > 2000 and not pas:
+                print('broke reset')
+                break
+
+            if pas:
+                return center
 
 
 def build_dataset_all_question():
@@ -299,63 +308,63 @@ def build_dataset_all_question():
                     print('error in data')
                     exit()
 
-            elif subtype == 5:
-                """farthest-from-closest"""
-                my_obj = objects[color][1]
-                dist_list = [((my_obj - obj[1]) ** 2).sum() for obj in objects]
-                farthest = dist_list.index(max(dist_list))
-
-                farthest_obj = objects[farthest][1]
-                dist_list = [((farthest_obj - obj[1]) ** 2).sum() for obj in objects]
-                dist_list[dist_list.index(0)] = (img_size ** 2) * 2  # max distance
-                farthest_closest = dist_list.index(min(dist_list))
-
-                answer = objects[farthest_closest][0] + answer_size_before_color
-
-            elif subtype == 6:
-                """closest-from-farthest"""
-                my_obj = objects[color][1]
-                dist_list = [((my_obj - obj[1]) ** 2).sum() for obj in objects]
-                dist_list[dist_list.index(0)] = (img_size ** 2) * 2  # max distance
-                closest = dist_list.index(min(dist_list))
-
-                closest_obj = objects[closest][1]
-                dist_list = [((closest_obj - obj[1]) ** 2).sum() for obj in objects]
-                closest_farthest = dist_list.index(max(dist_list))
-
-                answer = objects[closest_farthest][0] + answer_size_before_color
-
-            elif subtype == 7:
-                """farthest-from-closest"""
-                my_obj = objects[color][1]
-                dist_list = [((my_obj - obj[1]) ** 2).sum() for obj in objects]
-                farthest = dist_list.index(max(dist_list))
-
-                farthest_obj = objects[farthest][1]
-                dist_list = [((farthest_obj - obj[1]) ** 2).sum() for obj in objects]
-                dist_list[dist_list.index(0)] = (img_size ** 2) * 2  # max distance
-                farthest_closest = dist_list.index(min(dist_list))
-
-                if objects[farthest_closest][2] == 'rec':
-                    answer = 2
-                elif objects[farthest_closest][2] == 'cir':
-                    answer = 3
-
-            elif subtype == 8:
-                """closest-from-farthest"""
-                my_obj = objects[color][1]
-                dist_list = [((my_obj - obj[1]) ** 2).sum() for obj in objects]
-                dist_list[dist_list.index(0)] = (img_size ** 2) * 2  # max distance
-                closest = dist_list.index(min(dist_list))
-
-                closest_obj = objects[closest][1]
-                dist_list = [((closest_obj - obj[1]) ** 2).sum() for obj in objects]
-                closest_farthest = dist_list.index(max(dist_list))
-
-                if objects[closest_farthest][2] == 'rec':
-                    answer = 2
-                elif objects[closest_farthest][2] == 'cir':
-                    answer = 3
+            # elif subtype == 5:
+            #     """farthest-from-closest"""
+            #     my_obj = objects[color][1]
+            #     dist_list = [((my_obj - obj[1]) ** 2).sum() for obj in objects]
+            #     farthest = dist_list.index(max(dist_list))
+            #
+            #     farthest_obj = objects[farthest][1]
+            #     dist_list = [((farthest_obj - obj[1]) ** 2).sum() for obj in objects]
+            #     dist_list[dist_list.index(0)] = (img_size ** 2) * 2  # max distance
+            #     farthest_closest = dist_list.index(min(dist_list))
+            #
+            #     answer = objects[farthest_closest][0] + answer_size_before_color
+            #
+            # elif subtype == 6:
+            #     """closest-from-farthest"""
+            #     my_obj = objects[color][1]
+            #     dist_list = [((my_obj - obj[1]) ** 2).sum() for obj in objects]
+            #     dist_list[dist_list.index(0)] = (img_size ** 2) * 2  # max distance
+            #     closest = dist_list.index(min(dist_list))
+            #
+            #     closest_obj = objects[closest][1]
+            #     dist_list = [((closest_obj - obj[1]) ** 2).sum() for obj in objects]
+            #     closest_farthest = dist_list.index(max(dist_list))
+            #
+            #     answer = objects[closest_farthest][0] + answer_size_before_color
+            #
+            # elif subtype == 7:
+            #     """farthest-from-closest"""
+            #     my_obj = objects[color][1]
+            #     dist_list = [((my_obj - obj[1]) ** 2).sum() for obj in objects]
+            #     farthest = dist_list.index(max(dist_list))
+            #
+            #     farthest_obj = objects[farthest][1]
+            #     dist_list = [((farthest_obj - obj[1]) ** 2).sum() for obj in objects]
+            #     dist_list[dist_list.index(0)] = (img_size ** 2) * 2  # max distance
+            #     farthest_closest = dist_list.index(min(dist_list))
+            #
+            #     if objects[farthest_closest][2] == 'rec':
+            #         answer = 2
+            #     elif objects[farthest_closest][2] == 'cir':
+            #         answer = 3
+            #
+            # elif subtype == 8:
+            #     """closest-from-farthest"""
+            #     my_obj = objects[color][1]
+            #     dist_list = [((my_obj - obj[1]) ** 2).sum() for obj in objects]
+            #     dist_list[dist_list.index(0)] = (img_size ** 2) * 2  # max distance
+            #     closest = dist_list.index(min(dist_list))
+            #
+            #     closest_obj = objects[closest][1]
+            #     dist_list = [((closest_obj - obj[1]) ** 2).sum() for obj in objects]
+            #     closest_farthest = dist_list.index(max(dist_list))
+            #
+            #     if objects[closest_farthest][2] == 'rec':
+            #         answer = 2
+            #     elif objects[closest_farthest][2] == 'cir':
+            #         answer = 3
                 
 
 

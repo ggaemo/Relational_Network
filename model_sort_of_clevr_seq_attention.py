@@ -183,7 +183,7 @@ class RelationalNetwork():
             encoded_img_coord = tf.concat([encoded_img, coord_tensor], axis=3)
 
 
-        def get_attention_weighted_object(encoded_color):
+        def get_attention_weighted_object(encoded_img_coord, encoded_color):
 
             encoded_color = tf.reshape(encoded_color, [-1, 1, 1,
                                                    qst_color_vocab_size])
@@ -211,18 +211,40 @@ class RelationalNetwork():
         obj_list = list()
 
         with tf.variable_scope('attention'):
-            attention, reference_obj = get_attention_weighted_object(qst_color_embed)
+            attention, reference_obj = get_attention_weighted_object(
+                encoded_img_coord, qst_color_embed)
             tf.add_to_collection('reference_attention', attention)
 
-
+        tiled_i_list = list()
         for i in range(num_predefined_obj):
+            tiled_i = tf.ones(batch_size, dtype=tf.int32) * i
+            tiled_i_list.append(tiled_i_list)
 
-            with tf.variable_scope('attention', reuse=True):
-                tiled_i = tf.ones(batch_size, dtype=tf.int32) * i
-                color_one_hot_tmp = tf.one_hot(tiled_i, num_predefined_obj)
-                attention, source_obj = get_attention_weighted_object(color_one_hot_tmp)
-                obj_list.append(source_obj)
-                tf.add_to_collection('attention', attention)
+        tiled_i_stacked = tf.stack(tiled_i_list) #[bs * #num_predifined_obj, 1]
+        one_hot_stacked = tf.one_hot(tiled_i_stacked, num_predefined_obj)
+
+
+        encoded_img_coord_stacked = tf.expand_dims(encoded_img_coord)
+        encoded_img_coord_stacked = tf.tile(encoded_img_coord_stacked,
+                                            [num_predefined_obj,1, 1, 1, 1])
+        encoded_img_coord_stacked = tf.reshape(encoded_img_coord_stacked, [batch_size *
+                                                                           num_predefined_obj,
+                                                                           reduced_height, reduced_height, -1])
+
+        obj_stacked = get_attention_weighted_object(encoded_img_coord_stacked,
+                                                  one_hot_stacked)
+
+
+
+
+        # for i in range(num_predefined_obj):
+        #
+        #     with tf.variable_scope('attention', reuse=True):
+        #         tiled_i = tf.ones(batch_size, dtype=tf.int32) * i
+        #         color_one_hot_tmp = tf.one_hot(tiled_i, num_predefined_obj)
+        #         attention, source_obj = get_attention_weighted_object(color_one_hot_tmp)
+        #         obj_list.append(source_obj)
+        #         tf.add_to_collection('attention', attention)
 
 
         with tf.variable_scope('image_object_pairing'):

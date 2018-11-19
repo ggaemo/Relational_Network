@@ -183,7 +183,7 @@ with tf.Graph().as_default():
         import sort_of_celvr_inputs as inputs
 
 
-        height = 128
+        height = 256
         reduced_height = np.ceil(height / (2 ** len(img_encoding_layers_parsed)))
         num_obj = reduced_height ** 2
 
@@ -256,7 +256,7 @@ with tf.Graph().as_default():
                 cnn_reg=cnn_reg,
                 reduced_height=reduced_height,
                 num_obj=num_obj,
-                gumbel_layers=attention_layers,
+                attention_layers=attention_layers,
                 img_size=height
             )
         elif model_type == 'seq_attention':
@@ -324,9 +324,9 @@ with tf.Graph().as_default():
                                 run_metadata=run_metadata)
 
                             summary_writer.add_summary(trn_loss_summary, epoch_num)
-                            summary_writer.add_run_metadata(run_metadata, 'step_{}'.format(
-                                epoch_num),
-                                                            epoch_num)
+                            summary_writer.add_run_metadata(run_metadata,
+                                                            'iter_{}'.format(global_step),
+                                                            global_step)
 
                     # max_obj_onehot, encoded_img_coord, source_obj_onehot, source_obj= sess.run(
                     #     model.get, feed_dict={model.is_training: True})
